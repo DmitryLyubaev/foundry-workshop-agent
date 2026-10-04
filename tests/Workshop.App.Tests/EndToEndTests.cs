@@ -78,6 +78,21 @@ public sealed class EndToEndTests
     }
 
     [Fact]
+    public async Task Refused_cancel_through_save_status_restores_the_status_field()
+    {
+        using var app = AppHost.Start();
+        await app.OpenJobAsync("J-1008");
+
+        AssertOk(await app.SetAsync("status", "cancelled"));
+        var refused = await app.PressAsync("save-status");
+
+        // The screen must not show a cancelled job: a reader of the screen, not the outcome, would believe it.
+        Assert.Equal("validation_failed", refused.GetProperty("outcome").GetString());
+        Assert.Equal("diagnosing", FieldValue(refused, "status"));
+        Assert.Equal(JobStatus.Diagnosing, app.Jobs.Job("J-1008")!.Status);
+    }
+
+    [Fact]
     public async Task Cancel_job_cancels_the_job()
     {
         using var app = AppHost.Start();

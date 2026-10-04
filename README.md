@@ -97,8 +97,13 @@ Names are camelCase. **An absent property means null:** `value`, `options`, `max
 |---|---|---|
 | `ok` | The action ran. A press may carry the app's news. | e.g. `Added on order: not enough in stock.` |
 | `validation_failed` | A value or a rule was refused; nothing changed. | the setter's or the app's own message (below) |
-| `not_found` | No such screen, or no such field, list, row or button on the current screen. | `There is no field 'x' on this screen.`, `Jobs has no row 'J-9'.` |
+| `not_found` | No such screen, or no such field, list, row or button on the current screen. | The six below, with the name or key the client sent in `<…>`. |
 | `disabled` | The control is disabled. | `<Label> is disabled.` |
+
+The six `not_found` messages are: `There is no screen '<id>'.`, `The screen '<id>' could not be
+opened.`, `There is no field '<id>' on this screen.`, `There is no list '<id>' on this screen.`,
+`<List label> has no row '<key>'.` (for example `Jobs has no row 'J-9'.`) and `There is no button
+'<id>' on this screen.`
 
 A refused `set` answers one of: `<Label> needs a whole number.`, `<Label> must be between <min>
 and <max>.`, `<Label> must be one of: <options>.`, `<Label> needs true or false.`, `<Label> needs a
@@ -137,6 +142,10 @@ retrying, or the action may happen twice.
   recently. Booking a job in opens the new job, which makes it the current job. With no current
   record, `open` on a detail screen answers `ok` and shows the list: check `screen.id`.
 - **A list opens with the current record selected**, so selecting another row always changes it.
+  A search or filter that hides the current row leaves no row selected, and the record stays
+  current: clearing the search brings its row back unselected, `open` on the detail screen still
+  shows it, and `open-job` or `open-customer` answers `Select a job first.` or `Select a customer
+  first.` until a row is selected again.
 - `open-job` and `open-customer` open the selected row; `book-in` opens the new job.
 
 ### Option text and row keys
@@ -158,7 +167,7 @@ retrying, or the action may happen twice.
 | `devices` | the device ID, `D-011` | Device, Kind, Model, Serial |
 | `parts` (parts screen) | the part ID, `P-04` | Part, Name, Stock |
 | `parts` (job) | `<part ID>#<n>`, the part's nth line on the job, `P-04#1` | Part, Name, Quantity, State (`fitted` or `on order`) |
-| `notes` | `note-<n>`, oldest first from 1 | At (UTC, `yyyy-MM-dd HH:mm`), Note |
+| `notes` | `note-<n>`, oldest first from 1 | At (UTC), Note; the `At (UTC)` cell is formatted `yyyy-MM-dd HH:mm` |
 
 ### Status changes, and the one destructive action
 
@@ -186,6 +195,7 @@ destructive: it is the normal end of a job, reached only from `ready`.
 | `add-part` | `ok` | `Added on order: not enough in stock.` when the stock is short; none when fitted |
 | `add-part` | `validation_failed` | `The parts of a job that is ready cannot change. Set the status to in repair first.`, `The parts of a job that is <collected or cancelled> cannot change.` |
 | `fit-ordered-parts` | `ok` | `Fitted <n> of <m> parts on order.`, `Job <ID> has no parts on order.` |
+| `fit-ordered-parts` | `validation_failed` | `The parts of a job that is ready cannot change. Set the status to in repair first.`, `The parts of a job that is <collected or cancelled> cannot change.` |
 | `add-note` | `validation_failed` | `A note cannot be empty.` |
 | `book-in` | `validation_failed` | `The fault must be at least 3 characters.` |
 | `add-device` | `validation_failed` | `The kind must be one of: laptop, desktop, phone, tablet, printer, other.`, `The model cannot be empty.`, `The serial cannot be empty.` |

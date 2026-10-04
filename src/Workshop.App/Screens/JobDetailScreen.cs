@@ -104,6 +104,7 @@ internal sealed class JobDetailScreen : WorkshopScreen
         if (status.SelectedItem is not string name || JobStatusNames.Parse(name) is not { } to)
         {
             Refuse("Select a status first.");
+            RestoreStatus();
             return;
         }
 
@@ -112,10 +113,28 @@ internal sealed class JobDetailScreen : WorkshopScreen
         if (to == JobStatus.Cancelled)
         {
             Refuse("Use Cancel job to cancel a job.");
+            RestoreStatus();
             return;
         }
 
-        ApplyAndReload(Service.SetStatus(JobIdOrThrow, to));
+        if (Report(Service.SetStatus(JobIdOrThrow, to)))
+        {
+            Reload();
+        }
+        else
+        {
+            RestoreStatus();
+        }
+    }
+
+    /// <summary>
+    /// After a refused change the field goes back to the job's stored status, so the screen never
+    /// shows a status the job does not have: a reader of the screen would take it as done.
+    /// </summary>
+    private void RestoreStatus()
+    {
+        var stored = Service.Job(JobIdOrThrow) ?? throw new InvalidOperationException($"There is no job {JobId}.");
+        status.SelectedItem = JobStatusNames.Name(stored.Status);
     }
 
     private void AddPart()
