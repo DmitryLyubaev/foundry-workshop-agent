@@ -22,17 +22,21 @@ or, once built, `Workshop.App.exe [--db <path>] [--port <n>] [--session-dir <dir
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--db <path>` | a fresh database, `%LOCALAPPDATA%\FoundryWorkshopAgent\workshop-<timestamp>.db` | A database file that must already exist, such as a fresh copy a test runner made. |
+| `--db <path>` | a fresh database, `%LOCALAPPDATA%\FoundryWorkshopAgent\runs\<timestamp>\workshop.db` | A workshop database file that must already exist, such as a fresh copy a test runner made. |
 | `--port <n>` | `47811` | The endpoint's port on `127.0.0.1`. |
 | `--session-dir <dir>` | `%LOCALAPPDATA%\FoundryWorkshopAgent` | Where `session.json` is written. |
 
-The audit log, `audit.jsonl`, is written beside the database. If the app cannot start (the
-`--db` file is missing, or another instance holds the port) it exits with code 1, and with code 2
-for a bad command line; the reason goes to standard error. A second instance never touches the
-first one's session file.
+The audit log, `audit.jsonl`, is written beside the database, so a run without `--db` has a
+directory of its own; a runner that passes `--db` should give each run's copy its own directory.
 
-The screens are `job-list`, `job-detail`, `new-job`, `customer-list`, `customer-detail` and
-`parts`. A person moves between them with the menu; the agent opens them by ID.
+| Exit code | Meaning (the reason goes to standard error, as `Workshop.App: <reason>`) |
+|---|---|
+| `0` | The window was closed normally. |
+| `1` | The app could not start: the `--db` file is missing or is not a workshop database, or another instance holds the port. |
+| `2` | A bad command line. |
+
+A second instance never touches the first one's session file. A person moves between the screens
+with the menu; the agent opens them by ID.
 
 ## The endpoint
 
@@ -47,24 +51,154 @@ Invoke-RestMethod "http://127.0.0.1:$($s.port)/screen" -Headers @{ 'X-Surface-To
 | Route | Answers |
 |---|---|
 | `GET /screens` | the screens that can be opened: `[{"id","title"}]` |
-| `GET /screen` | the current screen: its `fields` (kind, value, options, enabled, required, maxLength), `buttons` (enabled, destructive) and `lists` (columns, and rows with a `key` to select them by) |
-| `POST /actions` | one action, as JSON: `{"type":"open","screen":…}`, `{"type":"set","field":…,"value":…}`, `{"type":"select","list":…,"row":…}` or `{"type":"press","button":…}` |
+| `GET /screen` | the current screen (shape below) |
+| `POST /actions` | one action, as JSON (shapes below); answers its outcome, the app's message, and the screen after it |
 
-An action answers its `outcome` (`ok`, `validation_failed`, `not_found` or `disabled`), the
-app's own `message` when it has one (a rule's refusal, or news such as a part going on order), and
-the new `screen`. A request the endpoint refuses gets an HTTP error with a body such as
-`{"error":"unauthorized"}`; a UI thread busy for more than 10 seconds gets `503`
-`{"error":"ui_timeout"}`.
+## Contract for clients
+
+This is what plan 2's client codes against. Plan 2 can reference `Workshop.Surface`'s records
+(`ScreenDescription`, `ActionResult`, `SessionInfo`) and `SurfaceJson.Options` directly.
+
+### Session and process
+
+- **`session.json`** is `{"port":47811,"token":"…","pid":1234,"startedAt":"2026-10-04T09:00:00+00:00"}`.
+  It is written only after the port is bound, readable only by the current Windows user, and
+  deleted on a normal close. A file whose `pid` is not running is stale: its token is dead.
+- **Stop the app with `CloseMainWindow`**, so the session file is removed. `Kill` leaves a stale file.
+
+### JSON shapes
+
+Names are camelCase. **An absent property means null:** `value`, `options`, `maxLength` and
+`message` are left out when they have none.
+
+| What | Shape |
+|---|---|
+| Screen | `{"id","title","fields":[…],"buttons":[…],"lists":[…]}`, each in tab order |
+| Field | `{"id","label","kind","value"?,"options"?,"enabled","required","maxLength"?}`; `kind` is `text`, `number`, `choice`, `checkbox` or `date` |
+| Button | `{"id","label","enabled","destructive"}` |
+| List | `{"id","label","columns":[…],"rows":[{"key","cells":[…],"selected"}]}` |
+| Action | `{"type":"open","screen"}`, `{"type":"set","field","value"}`, `{"type":"select","list","row"}` or `{"type":"press","button"}`; other properties are ignored, a repeated one is refused |
+| Result | `{"outcome","message"?,"screen"}`, where `screen` is the current screen after the action |
+| Error | `{"error":"<code>"}` |
+
+**Values.** A `set` value is a string; a JSON number or boolean is also accepted, as its JSON text.
+
+| Kind | Accepts |
+|---|---|
+| `text` | Any text up to `maxLength`, on one line. |
+| `number` | A whole number within the control's range. |
+| `choice` | Exactly one option's text, case-sensitive. |
+| `checkbox` | `true` or `false`. |
+| `date` | `yyyy-MM-dd`. |
+
+### Outcomes
+
+| Outcome | Meaning | Messages |
+|---|---|---|
+| `ok` | The action ran. A press may carry the app's news. | e.g. `Added on order: not enough in stock.` |
+| `validation_failed` | A value or a rule was refused; nothing changed. | the setter's or the app's own message (below) |
+| `not_found` | No such screen, or no such field, list, row or button on the current screen. | `There is no field 'x' on this screen.`, `Jobs has no row 'J-9'.` |
+| `disabled` | The control is disabled. | `<Label> is disabled.` |
+
+A refused `set` answers one of: `<Label> needs a whole number.`, `<Label> must be between <min>
+and <max>.`, `<Label> must be one of: <options>.`, `<Label> needs true or false.`, `<Label> needs a
+date as yyyy-MM-dd.`, `<Label> can be at most <n> characters.`, `<Label> must be on one line.`
+
+### HTTP errors
+
+| Status | `error` |
+|---|---|
+| 403 | `not_loopback`, `bad_host` |
+| 401 | `unauthorized` |
+| 404 | `not_found` |
+| 405 | `method_not_allowed`, with an `Allow` header |
+| 415 | `unsupported_media_type` (the body must be `application/json`) |
+| 413 | `payload_too_large` (over 64 KB) |
+| 400 | `bad_request` (not one valid action) |
+| 503 | `ui_timeout` (the UI thread was busy for more than 10 seconds) |
+| 500 | `internal_error` |
+
+**A 503 or a 500 on `POST /actions` does not mean "not done".** A 503 can arrive after the action
+started, and it still completes; a 500 can follow an action that ran. Read `GET /screen` before
+retrying, or the action may happen twice.
+
+### Screens and controls
+
+| Screen | Fields | Buttons | Lists |
+|---|---|---|---|
+| `job-list` (Jobs) | `search` (text), `status-filter` (choice) | `open-job`, `new-job` | `jobs` |
+| `job-detail` (Job) | `job` (text, disabled), `status` (choice), `fault` (text, disabled), `part` (choice), `quantity` (number, 1–20), `note` (text, up to 1,000) | `save-status`, `add-part`, `fit-ordered-parts`, `add-note`, `cancel-job` (**destructive**) | `parts`, `notes` |
+| `new-job` (New job) | `customer` (choice), `device` (choice: the chosen customer's devices), `fault` (text, 3 to 500) | `book-in` | |
+| `customer-list` (Customers) | `search` (text) | `open-customer` | `customers` |
+| `customer-detail` (Customer) | `name`, `phone` (text, disabled), `kind` (choice), `model`, `serial` (text, up to 100) | `add-device` | `devices` |
+| `parts` (Parts) | `quantity` (number, 1–100) | `receive-stock` | `parts` |
+
+- **A detail screen shows the current record:** the job or customer selected or opened most
+  recently. Booking a job in opens the new job, which makes it the current job. With no current
+  record, `open` on a detail screen answers `ok` and shows the list: check `screen.id`.
+- **A list opens with the current record selected**, so selecting another row always changes it.
+- `open-job` and `open-customer` open the selected row; `book-in` opens the new job.
+
+### Option text and row keys
+
+| Where | Format | Example |
+|---|---|---|
+| `status` | a status name: `booked in`, `diagnosing`, `waiting on parts`, `in repair`, `ready`, `collected`, `cancelled` | `in repair` |
+| `status-filter` | `all`, then the status names | `ready` |
+| `customer` (new job) | `<ID> <name>` | `C-001 Sam Rivera` |
+| `device` (new job) | `<ID> <model> (<kind>)` | `D-001 Aster Book 14 (laptop)` |
+| `part` (job) | `<ID> <name>` | `P-02 Phone screen assembly` |
+| `kind` | `laptop`, `desktop`, `phone`, `tablet`, `printer`, `other` | `phone` |
+| `job` field | `<job ID>: <model> (<kind>) for <customer>` | `J-1008: Inkwell 300 (printer) for Henderson Family` |
+
+| List | Row key | Columns |
+|---|---|---|
+| `jobs` | the job ID, `J-1008` | Job, Customer, Device, Status |
+| `customers` | the customer ID, `C-008` | Customer, Name, Phone |
+| `devices` | the device ID, `D-011` | Device, Kind, Model, Serial |
+| `parts` (parts screen) | the part ID, `P-04` | Part, Name, Stock |
+| `parts` (job) | `<part ID>#<n>`, the part's nth line on the job, `P-04#1` | Part, Name, Quantity, State (`fitted` or `on order`) |
+| `notes` | `note-<n>`, oldest first from 1 | At (UTC, `yyyy-MM-dd HH:mm`), Note |
+
+### Status changes, and the one destructive action
+
+| From | May become |
+|---|---|
+| booked in | diagnosing, cancelled |
+| diagnosing | waiting on parts, in repair, cancelled |
+| waiting on parts | in repair, cancelled |
+| in repair | waiting on parts, ready, cancelled |
+| ready | collected, in repair |
+| collected, cancelled | nothing |
+
+**The only path to `cancelled` is the destructive `cancel-job` button.** `save-status` with
+`cancelled` is refused, `validation_failed` with `Use Cancel job to cancel a job.`, and the job is
+unchanged; the option stays in the list so a cancelled job shows its status. `collected` is not
+destructive: it is the normal end of a job, reached only from `ready`.
+
+### The app's messages
+
+| Press | Outcome | Message |
+|---|---|---|
+| a button that needs a selection | `validation_failed` | `Select a job first.`, `Select a customer first.`, `Select a device first.`, `Select a part first.`, `Select a status first.` |
+| `save-status` | `validation_failed` | `Use Cancel job to cancel a job.`, `A job that is <from> cannot become <to>.`, `Job <ID> still has parts on order.` |
+| `cancel-job` | `validation_failed` | `A job that is <ready, collected or cancelled> cannot become cancelled.` |
+| `add-part` | `ok` | `Added on order: not enough in stock.` when the stock is short; none when fitted |
+| `add-part` | `validation_failed` | `The parts of a job that is ready cannot change. Set the status to in repair first.`, `The parts of a job that is <collected or cancelled> cannot change.` |
+| `fit-ordered-parts` | `ok` | `Fitted <n> of <m> parts on order.`, `Job <ID> has no parts on order.` |
+| `add-note` | `validation_failed` | `A note cannot be empty.` |
+| `book-in` | `validation_failed` | `The fault must be at least 3 characters.` |
+| `add-device` | `validation_failed` | `The kind must be one of: laptop, desktop, phone, tablet, printer, other.`, `The model cannot be empty.`, `The serial cannot be empty.` |
 
 ## Security model
 
 - **Loopback only.** The endpoint is constructed for `127.0.0.1` only and refuses any other
-  address. It also holds the `localhost` name for its port, so no other process can register a
-  route and capture a token sent to `localhost`. HTTP.sys accepts a `localhost` registration on
-  every local address, so the listener is reachable on the machine's other addresses too: every
-  request from a non-loopback address is answered `403` (`not_loopback`) before any other check.
-  Windows Firewall blocks unsolicited inbound connections by default; the app adds no firewall
-  rule and needs no URL ACL or administrator rights.
+  address. It holds eight URL prefixes, the root and every route's sub-path (`/`, `/screens/`,
+  `/screen/`, `/actions/`) under both `127.0.0.1:<port>` and `localhost:<port>`, so no other
+  process can register a route and capture a token. HTTP.sys listens on every local address for
+  the port whatever the prefixes say, so every request from a non-loopback address is answered
+  `403` (`not_loopback`) before any other check. Windows Firewall blocks unsolicited inbound
+  connections by default; the app adds no firewall rule and needs no URL ACL or administrator rights.
 - **A token per launch.** Each start writes a fresh random token to `session.json`, a file only
   the current Windows user can read. A web page can send requests to localhost, but cannot read
   the token. The file is deleted on a normal close, and a stale one from a crash is replaced.
@@ -75,7 +209,20 @@ the new `screen`. A request the endpoint refuses gets an HTTP error with a body 
 - **Serialised UI actions.** Actions run one at a time on the UI thread, through the real
   controls, so the agent can do only what a person could. The app never opens a modal dialog.
 - **An audit log.** Every action is appended to `audit.jsonl`: time, type, target, value and
-  outcome.
+  outcome. If the log cannot be written, the failure is traced and the action's result is still
+  answered, because the action has already happened.
+
+**Accepted residual risks.** The design names HttpListener (spec §3.5), and both risks below are
+contained by default settings:
+
+1. **HTTP.sys parses requests from the LAN.** Its request parsing runs before the `not_loopback`
+   check, with only Windows Firewall in front of it. A socket bound to `127.0.0.1` would not
+   accept such connections at all.
+2. **An administrator-made wildcard could capture tokens.** HTTP.sys routes a strong wildcard
+   (`http://+:<port>/`) before explicit host names, and such a registration does not conflict with
+   the endpoint's. If an administrator has created a URL ACL for one that another user can use,
+   that user could receive requests, and their tokens. None exists by default
+   (`netsh http show urlacl` lists them), and creating one needs administrator rights.
 
 ## Build and test
 
@@ -84,7 +231,8 @@ dotnet build -c Release
 dotnet test -c Release
 ```
 
-The tests include end-to-end runs of the app driven through its endpoint.
+The tests include end-to-end runs of the app driven through its endpoint, and runs of the exe
+itself for its exit codes.
 
 ## Licence
 
