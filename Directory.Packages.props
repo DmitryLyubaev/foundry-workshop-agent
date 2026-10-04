@@ -7,6 +7,9 @@
     <PackageVersion Include="Dapper" Version="2.1.89" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
   </ItemGroup>
+  <ItemGroup Label="Agent">
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
+  </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
