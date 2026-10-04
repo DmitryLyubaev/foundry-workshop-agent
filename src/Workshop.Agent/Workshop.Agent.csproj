@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- A library until Task 6 adds Program.cs and makes it the console app. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -10,6 +10,14 @@
     <!-- The end-state checker reads the app's database after the app has closed. -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.AI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The runner makes each run's fresh, seeded database, and applies the scenario's setup to it. -->
+    <ProjectReference Include="..\Workshop.Core\Workshop.Core.csproj" />
+    <!-- Built first, in the same configuration, so AppProcess.FindAppExe finds the app the runner
+         launches; nothing of it is referenced, so its Windows-only target does not matter here. -->
+    <ProjectReference Include="..\Workshop.App\Workshop.App.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" Private="false" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,7 +8,8 @@ namespace Workshop.Agent.Surface;
 /// The workshop app's endpoint, as a client sees it: <c>GET /screens</c>, <c>GET /screen</c> and
 /// <c>POST /actions</c> on <c>http://127.0.0.1:&lt;port&gt;/</c>, each with the launch's token in
 /// <c>X-Surface-Token</c>. Any answer but a 2xx throws <see cref="SurfaceHttpException"/>; a 503 or
-/// a 500 on an action does not mean the action did not happen (README, "HTTP errors").
+/// a 500 on an action does not mean the action did not happen (README, "HTTP errors"). It keeps
+/// every screen description it receives, for the runner's gate audit.
 /// </summary>
 public sealed class SurfaceClient : IDisposable
 {
@@ -18,6 +19,8 @@ public sealed class SurfaceClient : IDisposable
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
     private readonly HttpClient http;
+    private readonly Lock seenLock = new();
+    private readonly List<Screen> seen = [];
 
     public SurfaceClient(int port, string token)
     {
@@ -34,13 +37,28 @@ public sealed class SurfaceClient : IDisposable
         http.DefaultRequestHeaders.Add(TokenHeader, token);
     }
 
+    /// <summary>
+    /// Every screen description this client has received, in order, from <c>GET /screen</c> and from
+    /// action replies: which buttons a run saw flagged destructive.
+    /// </summary>
+    public IReadOnlyList<Screen> SeenScreens
+    {
+        get
+        {
+            lock (seenLock)
+            {
+                return [.. seen];
+            }
+        }
+    }
+
     /// <summary><c>GET /screens</c>: every screen the app can open.</summary>
     public async Task<ScreenInfo[]> ListScreensAsync(CancellationToken ct = default) =>
         await SendAsync<ScreenInfo[]>(new HttpRequestMessage(HttpMethod.Get, "screens"), ct).ConfigureAwait(false);
 
     /// <summary><c>GET /screen</c>: the current screen.</summary>
     public async Task<Screen> DescribeAsync(CancellationToken ct = default) =>
-        await SendAsync<Screen>(new HttpRequestMessage(HttpMethod.Get, "screen"), ct).ConfigureAwait(false);
+        Saw(await SendAsync<Screen>(new HttpRequestMessage(HttpMethod.Get, "screen"), ct).ConfigureAwait(false));
 
     /// <summary><c>POST /actions</c>: one action, and what it did.</summary>
     public async Task<ActionReply> ActAsync(ActionRequest action, CancellationToken ct = default)
@@ -49,10 +67,22 @@ public sealed class SurfaceClient : IDisposable
 
         var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(action, ContractJson.Options));
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
-        return await SendAsync<ActionReply>(new HttpRequestMessage(HttpMethod.Post, "actions") { Content = content }, ct).ConfigureAwait(false);
+        var reply = await SendAsync<ActionReply>(new HttpRequestMessage(HttpMethod.Post, "actions") { Content = content }, ct).ConfigureAwait(false);
+        Saw(reply.Screen);
+        return reply;
     }
 
     public void Dispose() => http.Dispose();
+
+    private Screen Saw(Screen screen)
+    {
+        lock (seenLock)
+        {
+            seen.Add(screen);
+        }
+
+        return screen;
+    }
 
     private async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken ct)
     {

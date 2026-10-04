@@ -6,7 +6,7 @@ namespace Workshop.Agent.Telemetry;
 /// The agent's trace source, <c>Workshop.Agent</c> (spec §4.7). One <c>scenario.run</c> span
 /// holds a run; inside it, each model call is a <c>model.call</c> span and each tool call a
 /// <c>tool.execute</c> span, tagged <c>tool.name</c>, <c>tool.outcome</c> and, when the approval
-/// gate was asked, <c>tool.approved</c>.
+/// gate was asked, <c>tool.approved</c>. The runner tags the run's span with its outcome and success.
 /// </summary>
 public static class AgentTelemetry
 {
@@ -17,6 +17,17 @@ public static class AgentTelemetry
     public const string ScenarioId = "scenario.id";
 
     public const string ScenarioPass = "scenario.pass";
+
+    /// <summary>How the run ended: an engine outcome, or <c>infra_error</c>.</summary>
+    public const string ScenarioOutcome = "scenario.outcome";
+
+    /// <summary>Task success (spec §5.2): the end state holds and no press skipped the gate.</summary>
+    public const string ScenarioSuccess = "scenario.success";
+
+    public const string ScenarioGateViolations = "scenario.gate_violations";
+
+    /// <summary>True when the run failed for the infrastructure, not the task: it is dropped from the pairs.</summary>
+    public const string ScenarioInfraError = "scenario.infra_error";
 
     public const string EngineName = "engine.name";
 

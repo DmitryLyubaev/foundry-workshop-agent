@@ -79,6 +79,21 @@ public sealed class SurfaceClientTests
     }
 
     [Fact]
+    public async Task Keeps_every_screen_it_receives()
+    {
+        using var app = RunningApp.Start();
+        var client = app.App.Client;
+
+        _ = await client.ListScreensAsync(Cancel);
+        var described = await client.DescribeAsync(Cancel);
+        var opened = await client.ActAsync(ActionRequest.Open("new-job"), Cancel);
+
+        Assert.Equal(["job-list", "new-job"], client.SeenScreens.Select(s => s.Id));
+        Assert.Same(described, client.SeenScreens[0]);
+        Assert.Same(opened.Screen, client.SeenScreens[1]);
+    }
+
+    [Fact]
     public async Task Wrong_token_throws_401()
     {
         using var app = RunningApp.Start();

@@ -1,0 +1,307 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
+using Workshop.Agent.Engines;
+using Workshop.Agent.Runner;
+using Workshop.Agent.Surface;
+using Workshop.Agent.Telemetry;
+
+namespace Workshop.Agent.Tests;
+
+/// <summary>
+/// One run through the real app: it is always closed (Review Focus 1), the limits are outcomes and
+/// the checks still run (Review Focus 4), repeat runs start clean (Review Focus 5), and an app that
+/// cannot start or an endpoint that fails is an infrastructure error, not a task failure.
+/// </summary>
+public sealed class ScenarioRunnerTests
+{
+    private static CancellationToken Cancel => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task App_is_closed_after_an_engine_exception()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new SpyEngine(run, new BodyEngine(_ => throw new InvalidOperationException("The engine broke.")), seen),
+            ScenarioRunner.GateFor);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel));
+
+        Assert.Equal("The engine broke.", thrown.Message);
+        var app = Assert.Single(seen);
+        Assert.True(app.App.HasExited);
+        Assert.False(Directory.Exists(app.Directory));
+        // An exception that is neither an outcome nor the infrastructure's is a bug: no transcript hides it.
+        Assert.Empty(Directory.GetFiles(output.Directory));
+    }
+
+    [Fact]
+    public async Task App_is_closed_when_the_run_is_cancelled()
+    {
+        using var output = TempRun.Create();
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var seen = new List<SeenRun>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new SpyEngine(run, new BodyEngine(async ct =>
+            {
+                await cancel.CancelAsync();
+                await Task.Delay(Timeout.Infinite, ct);
+                throw new UnreachableException();
+            }), seen),
+            ScenarioRunner.GateFor);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, cancel.Token));
+
+        var app = Assert.Single(seen);
+        Assert.True(app.App.HasExited);
+        Assert.False(Directory.Exists(app.Directory));
+    }
+
+    [Fact]
+    public async Task App_is_closed_after_time_limit_and_checks_still_run()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new SpyEngine(run, new ChatClientEngine("fake", "hanging", new HangingModel(), run.Budget, TimeSpan.FromMilliseconds(500), run), seen),
+            ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.TimeLimit, transcript.Outcome);
+        Assert.False(transcript.InfraError);
+        Assert.True(Assert.Single(seen).App.HasExited);
+        // The checks ran on the database the app left: s05 wanted a 16th job, and none was booked.
+        Assert.False(transcript.Check.Passed);
+        Assert.Contains("Check 1 (SELECT count(*) FROM jobs) gave '15', expected '16'.", transcript.Check.Failures);
+        Assert.False(transcript.Success);
+        Assert.True(File.Exists(Path.Combine(output.Directory, "s05.fake.p1.json")));
+    }
+
+    [Fact]
+    public async Task App_is_closed_after_tool_limit_and_checks_still_run()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var describe = """{ "call": "describe_screen", "args": {} }""";
+        var script = Script.Parse($$"""[{{string.Join(", ", Enumerable.Repeat(describe, 26))}}, { "reply": "Done." }]""");
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new SpyEngine(run, FakeEngine.Create(script, run), seen),
+            ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.ToolLimit, transcript.Outcome);
+        Assert.Equal(26, transcript.Tools.Count);
+        Assert.Equal("tool_limit", transcript.Tools[^1].Outcome);
+        Assert.True(Assert.Single(seen).App.HasExited);
+        Assert.Contains("Check 1 (SELECT count(*) FROM jobs) gave '15', expected '16'.", transcript.Check.Failures);
+        Assert.False(transcript.Success);
+    }
+
+    [Fact]
+    public async Task Two_passes_share_no_state()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (s, run) => new SpyEngine(run, FakeEngine.Create(ScenarioSet.ScriptFor(s.Id, "correct"), run), seen),
+            ScenarioRunner.GateFor);
+        var s05 = ScenarioSet.Get("s05");
+
+        var first = await runner.RunAsync(s05, 1, output.Directory, Cancel);
+        Assert.True(seen[0].App.HasExited);
+        Assert.False(Directory.Exists(seen[0].Directory));
+        var second = await runner.RunAsync(s05, 2, output.Directory, Cancel);
+
+        // Each pass books job J-1016 and expects 16 jobs: a database the first pass left would hold 17.
+        Assert.True(first.Success, string.Join(" ", first.Check.Failures));
+        Assert.True(second.Success, string.Join(" ", second.Check.Failures));
+        Assert.Contains("J-1016", second.FinalReply, StringComparison.Ordinal);
+        Assert.Equal(2, seen.Count);
+        Assert.NotEqual(seen[0].Directory, seen[1].Directory);
+        Assert.NotEqual(seen[0].Port, seen[1].Port);
+        Assert.NotEqual(seen[0].App.Id, seen[1].App.Id);
+        Assert.True(seen[1].App.HasExited);
+        Assert.Equal(["s05.fake.p1.json", "s05.fake.p2.json"], Directory.GetFiles(output.Directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Infra_error_when_app_cannot_start_is_reported_not_failed()
+    {
+        using var output = TempRun.Create();
+        var missing = Path.Combine(output.Directory, "no-such-app", AppProcess.AppExeName);
+        var runner = new ScenarioRunner(missing, (s, run) => FakeEngine.Create(ScenarioSet.ScriptFor(s.Id, "correct"), run), ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel);
+
+        Assert.True(transcript.InfraError);
+        Assert.Equal(Transcript.InfraErrorOutcome, transcript.Outcome);
+        Assert.Contains(missing, transcript.InfraMessage, StringComparison.Ordinal);
+        Assert.Contains(nameof(AppStartException), transcript.InfraMessage, StringComparison.Ordinal);
+        Assert.False(transcript.Success);
+        Assert.Equal("fake", transcript.Engine);
+        Assert.Empty(transcript.Calls);
+        Assert.Empty(transcript.Tools);
+        Assert.Null(transcript.FinalReply);
+        Assert.True(File.Exists(Path.Combine(output.Directory, "s05.fake.p1.json")));
+    }
+
+    [Fact]
+    public async Task Infra_error_when_the_endpoint_fails_mid_run_is_reported_not_failed()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var script = Script.Parse("""
+            [
+              { "call": "describe_screen", "args": {} },
+              { "call": "describe_screen", "args": {} },
+              { "reply": "Done." }
+            ]
+            """);
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new SpyEngine(run, new KillAppAfterFirstCall(run, FakeEngine.Create(script, run)), seen),
+            ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s16"), 1, output.Directory, Cancel);
+
+        Assert.True(transcript.InfraError);
+        Assert.Equal(Transcript.InfraErrorOutcome, transcript.Outcome);
+        Assert.Contains(nameof(HttpRequestException), transcript.InfraMessage, StringComparison.Ordinal);
+        Assert.False(transcript.Success);
+        // The call that met the dead endpoint is still on the record.
+        Assert.Equal(["ok", "error"], transcript.Tools.Select(t => t.Outcome));
+    }
+
+    [Fact]
+    public async Task Transcript_has_every_field()
+    {
+        using var output = TempRun.Create();
+        var startedAfter = DateTimeOffset.UtcNow;
+        var runner = new ScenarioRunner(AppProcess.FindAppExe(), (s, run) => FakeEngine.Create(ScenarioSet.ScriptFor(s.Id, "correct"), run), ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 3, output.Directory, Cancel);
+
+        var file = Path.Combine(output.Directory, "s05.fake.p3.json");
+        using var json = JsonDocument.Parse(File.ReadAllBytes(file));
+        var root = json.RootElement;
+        Assert.Equal(
+            ["scenarioId", "pass", "engine", "model", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
+            root.EnumerateObject().Select(p => p.Name));
+
+        Assert.Equal("s05", root.GetProperty("scenarioId").GetString());
+        Assert.Equal(3, root.GetProperty("pass").GetInt32());
+        Assert.Equal("fake", root.GetProperty("engine").GetString());
+        Assert.Equal(FakeEngine.Model, root.GetProperty("model").GetString());
+        Assert.Equal("completed", root.GetProperty("outcome").GetString());
+        Assert.False(root.GetProperty("infraError").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("infraMessage").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("error").ValueKind);
+
+        // Six tool calls, then the reply: seven model calls, each with its tokens.
+        var calls = root.GetProperty("calls").EnumerateArray().ToArray();
+        Assert.Equal(7, calls.Length);
+        Assert.Equal(Enumerable.Range(1, 7), calls.Select(c => c.GetProperty("index").GetInt32()));
+        Assert.All(calls, c =>
+        {
+            Assert.Equal(ScriptedChatClient.InputTokensPerResponse, c.GetProperty("inputTokens").GetInt64());
+            Assert.Equal(ScriptedChatClient.OutputTokensPerResponse, c.GetProperty("outputTokens").GetInt64());
+            Assert.True(c.GetProperty("ms").GetDouble() >= 0);
+        });
+        Assert.Equal("stop", calls[^1].GetProperty("finishReason").GetString());
+
+        var tools = root.GetProperty("tools").EnumerateArray().ToArray();
+        Assert.Equal(6, tools.Length);
+        Assert.Equal(
+            ["index", "tool", "arguments", "outcome", "message", "screenId", "ms", "approved"],
+            tools[0].EnumerateObject().Select(p => p.Name));
+        Assert.Equal("open_screen", tools[0].GetProperty("tool").GetString());
+        Assert.Equal("new-job", tools[0].GetProperty("arguments").GetProperty("screen").GetString());
+        Assert.Equal("press_button", tools[^1].GetProperty("tool").GetString());
+        Assert.Equal("ok", tools[^1].GetProperty("outcome").GetString());
+        Assert.Equal(JsonValueKind.Null, tools[^1].GetProperty("approved").ValueKind);
+
+        Assert.StartsWith("Booked in Sam Rivera's Aster Book 14 laptop as job J-1016", root.GetProperty("finalReply").GetString(), StringComparison.Ordinal);
+        Assert.Equal(0, root.GetProperty("gateViolations").GetInt32());
+        Assert.True(root.GetProperty("check").GetProperty("passed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("check").GetProperty("failures").GetArrayLength());
+        Assert.True(root.GetProperty("success").GetBoolean());
+        Assert.True(root.GetProperty("ms").GetDouble() > 0);
+        var startedAt = root.GetProperty("startedAt").GetDateTimeOffset();
+        Assert.InRange(startedAt, startedAfter, DateTimeOffset.UtcNow);
+
+        // The file is the transcript the run returned.
+        Assert.True(transcript.Success);
+        Assert.Equal(transcript.StartedAt, startedAt);
+        Assert.Equal(transcript.Tools.Count, tools.Length);
+    }
+
+    [Fact]
+    public async Task Scenario_run_span_holds_the_run_and_is_tagged_with_its_outcome()
+    {
+        var stopped = new ConcurrentQueue<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentTelemetry.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Enqueue,
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var output = TempRun.Create();
+        var runner = new ScenarioRunner(AppProcess.FindAppExe(), (s, run) => FakeEngine.Create(ScenarioSet.ScriptFor(s.Id, "correct"), run), ScenarioRunner.GateFor);
+
+        // A pass no other test uses, so the span is this run's even while other runs are traced.
+        await runner.RunAsync(ScenarioSet.Get("s16"), 41, output.Directory, Cancel);
+
+        var run = Assert.Single(stopped, a => a.OperationName == AgentTelemetry.ScenarioRun && Equals(a.GetTagItem(AgentTelemetry.ScenarioPass), 41));
+        Assert.Equal("s16", run.GetTagItem(AgentTelemetry.ScenarioId));
+        Assert.Equal(EngineOutcome.Completed, run.GetTagItem(AgentTelemetry.ScenarioOutcome));
+        Assert.Equal(true, run.GetTagItem(AgentTelemetry.ScenarioSuccess));
+        Assert.Equal(0, run.GetTagItem(AgentTelemetry.ScenarioGateViolations));
+        Assert.Equal(false, run.GetTagItem(AgentTelemetry.ScenarioInfraError));
+
+        var inside = stopped.Where(a => a.TraceId == run.TraceId && a != run).ToArray();
+        Assert.Equal(5, inside.Count(a => a.OperationName == AgentTelemetry.ModelCall));
+        Assert.Equal(4, inside.Count(a => a.OperationName == AgentTelemetry.ToolExecute));
+        Assert.Contains(inside, a => a.OperationName == AgentTelemetry.ToolExecute && Equals(a.GetTagItem(AgentTelemetry.ToolApproved), false));
+    }
+
+    /// <summary>Kills the app once the model's first tool call is answered, so the next call meets a dead endpoint.</summary>
+    private sealed class KillAppAfterFirstCall(EngineRun run, IAgentEngine inner) : IAgentEngine
+    {
+        public string Name => inner.Name;
+
+        public string Model => inner.Model;
+
+        public Task<EngineResult> RunAsync(string task, IReadOnlyList<Microsoft.Extensions.AI.AIFunction> tools, CancellationToken ct)
+        {
+            var killing = tools.Select(tool => (Microsoft.Extensions.AI.AIFunction)new KillAfter(tool, run)).ToArray();
+            return inner.RunAsync(task, killing, ct);
+        }
+
+        private sealed class KillAfter(Microsoft.Extensions.AI.AIFunction tool, EngineRun run) : Microsoft.Extensions.AI.DelegatingAIFunction(tool)
+        {
+            private int calls;
+
+            protected override async ValueTask<object?> InvokeCoreAsync(Microsoft.Extensions.AI.AIFunctionArguments arguments, CancellationToken cancellationToken)
+            {
+                var result = await base.InvokeCoreAsync(arguments, cancellationToken);
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    using var app = Process.GetProcessById(run.App!.ProcessId);
+                    app.Kill(entireProcessTree: true);
+                    await app.WaitForExitAsync(cancellationToken);
+                }
+
+                return result;
+            }
+        }
+    }
+}

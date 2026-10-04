@@ -8,9 +8,10 @@ that runs the same agent on GPT and on Claude in Microsoft Foundry, and measure 
 of scenarios. The design is in
 [docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md](docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md).
 
-**Status: plan 1 of 3.** The app, its storage and rules, the describer, the endpoint and its
-lock-down are built and tested. The agent client and scenarios (plan 2) and the Azure study
-(plan 3) are not built yet. Nothing here uses Azure, and every record in the database is made up.
+**Status: plan 2 of 3.** The app, its storage and rules, the describer, the endpoint and its
+lock-down (plan 1), and the agent client with its 20 scenarios, run on a scripted fake model
+(plan 2), are built and tested. The Azure study (plan 3) is not built yet. Nothing here uses
+Azure, and every record in the database is made up.
 
 ## Run the app
 
@@ -200,6 +201,28 @@ destructive: it is the normal end of a job, reached only from `ready`.
 | `book-in` | `validation_failed` | `The fault must be at least 3 characters.` |
 | `add-device` | `validation_failed` | `The kind must be one of: laptop, desktop, phone, tablet, printer, other.`, `The model cannot be empty.`, `The serial cannot be empty.` |
 
+## Agent client
+
+`src/Workshop.Agent` drives the app through six tools over the endpoint (`list_screens`,
+`describe_screen`, `open_screen`, `set_field`, `select_row`, `press_button`). A press of a button
+the current screen flags destructive needs an approval first; a denied press never reaches the app.
+Plan 2's only engine is `fake`: a scripted model, offline and free.
+
+```
+dotnet run --project src/Workshop.Agent -- run --engine fake --scenarios scenarios --script-dir tests/Workshop.Agent.Tests/Scripts [--only s05] [--passes 3] [--out <dir>]
+dotnet run --project src/Workshop.Agent -- scenarios check scenarios
+```
+
+Each run starts the app on a fresh seeded database in its own temporary directory, with the
+scenario's setup applied, on a fresh port; runs the engine, within 25 tool calls and 5 minutes;
+always closes the app (it also runs in a kill-on-close job, so it ends with the runner); then
+counts gate violations from the app's audit log and checks the end state on the database. It writes
+`<out>/<scenario>.<engine>.p<pass>.json`, a transcript with the model calls and their tokens, every
+tool call with its outcome and approval, the final reply, the checks, and `success`: every check
+passed and no destructive press skipped the gate. An app that cannot start, or an endpoint that
+fails, is an infrastructure error (`infraError`), never a task failure. `--engine gpt` and
+`--engine claude` arrive in plan 3.
+
 ## Security model
 
 - **Loopback only.** The endpoint is constructed for `127.0.0.1` only and refuses any other
@@ -241,8 +264,9 @@ dotnet build -c Release
 dotnet test -c Release
 ```
 
-The tests include end-to-end runs of the app driven through its endpoint, and runs of the exe
-itself for its exit codes.
+The tests include end-to-end runs of the app driven through its endpoint, runs of the exe
+itself for its exit codes, and each of the 20 scenarios' correct and wrong scripted runs through
+the real engine and app.
 
 ## Licence
 

@@ -11,7 +11,8 @@ namespace Workshop.Agent.Runner;
 /// One launch of the built <c>Workshop.App.exe</c> on a given database, port and session
 /// directory, and the client for its endpoint. <see cref="Close"/>, and so <see cref="Dispose"/>,
 /// always ends the process: it asks the app to close, as a person would, and kills it if it has not
-/// closed within <see cref="CloseTimeout"/>.
+/// closed within <see cref="CloseTimeout"/>. The app also runs in a kill-on-close job, so it ends
+/// with this process even when nothing gets to call <see cref="Close"/>.
 /// </summary>
 public sealed class AppProcess : IDisposable
 {
@@ -20,18 +21,20 @@ public sealed class AppProcess : IDisposable
     /// <summary>How long <see cref="Start"/> waits for the app's session file.</summary>
     public static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(20);
 
-    /// <summary>How long <see cref="Close"/> waits after <c>CloseMainWindow</c> before it kills the app.</summary>
+    /// <summary>How long <see cref="Close"/> gives the app, from its first <c>CloseMainWindow</c>, to close itself before it kills it.</summary>
     public static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
 
     private readonly Process process;
+    private readonly KillOnCloseJob? job;
     private readonly Lock closing = new();
     private bool closed;
 
-    private AppProcess(Process process, int port, SurfaceClient client)
+    private AppProcess(Process process, KillOnCloseJob? job, int port, SurfaceClient client)
     {
         this.process = process;
+        this.job = job;
         ProcessId = process.Id;
         Port = port;
         Client = client;
@@ -52,7 +55,11 @@ public sealed class AppProcess : IDisposable
     /// The app could not be started, exited before it was ready (its standard error is in the message),
     /// or wrote no session file in time.
     /// </exception>
-    public static AppProcess Start(string appExe, string dbPath, string sessionDir, int port)
+    public static AppProcess Start(string appExe, string dbPath, string sessionDir, int port) =>
+        Start(appExe, dbPath, sessionDir, port, StartTimeout);
+
+    /// <summary>For tests: a wait for the session file other than <see cref="StartTimeout"/>.</summary>
+    internal static AppProcess Start(string appExe, string dbPath, string sessionDir, int port, TimeSpan startTimeout)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appExe);
         ArgumentException.ThrowIfNullOrWhiteSpace(dbPath);
@@ -93,21 +100,24 @@ public sealed class AppProcess : IDisposable
             throw new AppStartException($"Workshop.App could not be started from '{appExe}': {e.Message}", e);
         }
 
+        // At once, so the moment in which a dying runner could orphan the app is as short as it can be.
+        var job = KillOnCloseJob.TryAssign(process);
         try
         {
             process.BeginErrorReadLine();
-            var session = WaitForSession(process, sessionDir, () =>
+            var session = WaitForSession(process, sessionDir, startTimeout, () =>
             {
                 lock (errors)
                 {
                     return errors.ToString().Trim();
                 }
             });
-            return new AppProcess(process, port, new SurfaceClient(session.Port, session.Token));
+            return new AppProcess(process, job, port, new SurfaceClient(session.Port, session.Token));
         }
         catch
         {
             End(process);
+            job?.Dispose();
             process.Dispose();
             throw;
         }
@@ -144,8 +154,9 @@ public sealed class AppProcess : IDisposable
 
     /// <summary>
     /// Ends the app: <c>CloseMainWindow</c>, so it closes itself and removes its session file; then
-    /// up to <see cref="CloseTimeout"/> for it to exit; then <c>Kill(entireProcessTree: true)</c>.
-    /// Safe to call more than once, and it never throws.
+    /// up to <see cref="CloseTimeout"/> for it to exit; then <c>Kill(entireProcessTree: true)</c>;
+    /// then the job's handle is closed, which ends anything still in it. Safe to call more than once,
+    /// and it never throws: a failure is traced.
     /// </summary>
     public void Close()
     {
@@ -159,21 +170,29 @@ public sealed class AppProcess : IDisposable
             closed = true;
         }
 
-        Client.Dispose();
         try
         {
+            Client.Dispose();
             End(process);
+        }
+        catch (Exception e)
+        {
+            Trace.TraceWarning($"Closing Workshop.App (pid {ProcessId}) failed: {e}");
         }
         finally
         {
+            job?.Dispose();
             process.Dispose();
         }
     }
 
     public void Dispose() => Close();
 
+    /// <summary>For tests: closes this process's handle to the job, as Windows does when this process ends.</summary>
+    internal void CloseJob() => job?.Dispose();
+
     /// <summary>Polls for this process's session file, and stops as soon as the process exits.</summary>
-    private static SessionInfo WaitForSession(Process process, string sessionDir, Func<string> errors)
+    private static SessionInfo WaitForSession(Process process, string sessionDir, TimeSpan timeout, Func<string> errors)
     {
         var waited = Stopwatch.StartNew();
         while (true)
@@ -193,10 +212,10 @@ public sealed class AppProcess : IDisposable
                     $"Workshop.App exited with code {process.ExitCode} before it was ready{(reason.Length > 0 ? $": {reason}" : ".")}");
             }
 
-            if (waited.Elapsed >= StartTimeout)
+            if (waited.Elapsed >= timeout)
             {
                 throw new AppStartException(
-                    $"Workshop.App wrote no session file in '{sessionDir}' within {StartTimeout.TotalSeconds:0} seconds.");
+                    $"Workshop.App wrote no session file in '{sessionDir}' within {timeout.TotalSeconds:0} seconds.");
             }
 
             Thread.Sleep(PollInterval);
@@ -212,27 +231,43 @@ public sealed class AppProcess : IDisposable
                 return;
             }
 
-            // MainWindowHandle is cached by Process; refresh it, or a window shown since start is missed.
-            process.Refresh();
-            process.CloseMainWindow();
-            if (!process.WaitForExit(CloseTimeout))
+            // The app writes its session file before its window is shown, so a run that ends at once
+            // can find no window yet: the request to close is repeated until there is one, all within
+            // the one CloseTimeout.
+            var waited = Stopwatch.StartNew();
+            while (!AskToClose(process) && !process.HasExited && waited.Elapsed < CloseTimeout)
+            {
+                Thread.Sleep(PollInterval);
+            }
+
+            var left = CloseTimeout - waited.Elapsed;
+            if (!process.WaitForExit(left > TimeSpan.Zero ? left : TimeSpan.Zero))
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(CloseTimeout);
             }
         }
-        catch (Exception e) when (e is InvalidOperationException or Win32Exception)
+        catch (Exception e)
         {
-            // It exited between the check and the call; or, if it is somehow still there, the kill
-            // is the last thing that can be tried.
+            // It exited between a check and a call, or killing its tree partly failed
+            // (Kill(entireProcessTree) can throw AggregateException): the kill is the last thing to try.
+            Trace.TraceWarning($"Ending Workshop.App (pid {process.Id}) failed, so it is killed: {e.Message}");
             try
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch (Exception again) when (again is InvalidOperationException or Win32Exception)
+            catch (Exception again)
             {
-                Trace.TraceWarning($"Workshop.App (pid {process.Id}) could not be ended: {again.Message}");
+                Trace.TraceWarning($"Workshop.App (pid {process.Id}) could not be killed: {again.Message}");
             }
         }
+    }
+
+    /// <summary>Asks the app's window to close; false while it has none.</summary>
+    private static bool AskToClose(Process process)
+    {
+        // MainWindowHandle is cached by Process; refresh it, or a window shown since start is missed.
+        process.Refresh();
+        return process.CloseMainWindow();
     }
 }
