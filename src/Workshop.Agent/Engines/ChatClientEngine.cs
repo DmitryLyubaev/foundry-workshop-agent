@@ -18,19 +18,24 @@ public sealed class ChatClientEngine : IAgentEngine
     private readonly TimeSpan timeLimit;
     private readonly TimeSpan throttleBudget;
     private readonly Func<TimeSpan, CancellationToken, Task>? delay;
+    private readonly IToolCallRecorder? recorder;
 
     /// <param name="name">The engine's name, such as <c>fake</c>.</param>
     /// <param name="model">The model's name, for the transcript and the trace.</param>
     /// <param name="inner">The model's client.</param>
     /// <param name="budget">The run's tool-call budget, shared with the tools, which take from it.</param>
     /// <param name="timeLimit">How long the run may take before its outcome is <see cref="EngineOutcome.TimeLimit"/>.</param>
-    public ChatClientEngine(string name, string model, IChatClient inner, ToolBudget budget, TimeSpan timeLimit)
-        : this(name, model, inner, budget, timeLimit, ThrottleRetryChatClient.DefaultBudget, null)
+    /// <param name="recorder">
+    /// Takes the calls the engine answers itself, to tools that do not exist, so the transcript
+    /// holds every call: normally the run's <see cref="WorkshopTools"/>. Null keeps them only in the trace.
+    /// </param>
+    public ChatClientEngine(string name, string model, IChatClient inner, ToolBudget budget, TimeSpan timeLimit, IToolCallRecorder? recorder = null)
+        : this(name, model, inner, budget, timeLimit, ThrottleRetryChatClient.DefaultBudget, null, recorder)
     {
     }
 
     /// <summary>For tests: a throttling wait budget and a way to wait other than the clock's.</summary>
-    internal ChatClientEngine(string name, string model, IChatClient inner, ToolBudget budget, TimeSpan timeLimit, TimeSpan throttleBudget, Func<TimeSpan, CancellationToken, Task>? delay)
+    internal ChatClientEngine(string name, string model, IChatClient inner, ToolBudget budget, TimeSpan timeLimit, TimeSpan throttleBudget, Func<TimeSpan, CancellationToken, Task>? delay, IToolCallRecorder? recorder = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
@@ -44,6 +49,7 @@ public sealed class ChatClientEngine : IAgentEngine
         this.timeLimit = timeLimit;
         this.throttleBudget = throttleBudget;
         this.delay = delay;
+        this.recorder = recorder;
     }
 
     public string Name { get; }
@@ -58,7 +64,7 @@ public sealed class ChatClientEngine : IAgentEngine
         // Built per run: the throttling budget and the call records belong to one run.
         var recording = new RecordingChatClient(new ThrottleRetryChatClient(inner, throttleBudget, delay), Model);
         // Not disposed: a delegating client disposes its inner one, and the model's client is the caller's.
-        var loop = new ToolLoopChatClient(recording, budget);
+        var loop = new ToolLoopChatClient(recording, budget, recorder);
         var agent = new ChatClientAgent(loop, new ChatClientAgentOptions
         {
             ChatOptions = new ChatOptions { Instructions = AgentInstructions.Text, Tools = [.. tools] },
@@ -70,7 +76,8 @@ public sealed class ChatClientEngine : IAgentEngine
         limit.CancelAfter(timeLimit);
         try
         {
-            var response = await agent.RunAsync(task, cancellationToken: limit.Token).ConfigureAwait(false);
+            // WaitAsync is the backstop: a model client or a tool that ignores the token still ends at the limit.
+            var response = await agent.RunAsync(task, cancellationToken: limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
             var calls = recording.Calls;
             return calls.Count > 0 && calls[^1].FinishReason == ChatFinishReason.ContentFilter.Value
                 ? new EngineResult(EngineOutcome.ContentFiltered, null, calls)
@@ -84,16 +91,17 @@ public sealed class ChatClientEngine : IAgentEngine
         {
             return new EngineResult(EngineOutcome.Throttled, null, recording.Calls);
         }
-        catch (OperationCanceledException) when (limit.IsCancellationRequested && !ct.IsCancellationRequested)
+        catch (Exception e) when (limit.IsCancellationRequested && !ct.IsCancellationRequested && !loop.IsToolFailure(e))
         {
+            // Once the limit has fired, whatever surfaces is the limit's doing: a client may turn
+            // cancellation into an exception of its own.
             return new EngineResult(EngineOutcome.TimeLimit, null, recording.Calls);
         }
         catch (Exception e) when (!ct.IsCancellationRequested && !loop.IsToolFailure(e))
         {
-            // The model or the loop failed; a tool's failure and the caller's cancellation go on as
-            // they were thrown. The result has no room for the reason, so the trace keeps it.
+            // The model or the loop failed; a tool's failure and the caller's cancellation go on as they were thrown.
             Activity.Current?.AddException(e);
-            return new EngineResult(EngineOutcome.EngineError, null, recording.Calls);
+            return new EngineResult(EngineOutcome.EngineError, null, recording.Calls, $"{e.GetType().FullName}: {e.Message}");
         }
     }
 

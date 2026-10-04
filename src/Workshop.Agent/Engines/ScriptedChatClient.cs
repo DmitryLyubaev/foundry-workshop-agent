@@ -9,7 +9,8 @@ internal sealed record ScriptedRequest(IReadOnlyList<ChatMessage> Messages, Chat
 
 /// <summary>
 /// The <c>fake</c> engine's model: each call takes the script's next step, whatever it was sent.
-/// Every answer costs a fixed 1,000 input and 50 output tokens. A throttle step throws
+/// A <c>calls</c> step answers with several tool calls at once, as real models do. Every answer
+/// costs a fixed 1,000 input and 50 output tokens. A throttle step throws
 /// <see cref="ThrottledException"/>; a script with no step left throws, which the engine reports
 /// as <see cref="EngineOutcome.EngineError"/>.
 /// </summary>
@@ -95,8 +96,9 @@ public sealed class ScriptedChatClient : IChatClient
 
         return step switch
         {
-            ScriptStep.Call call => Respond(
-                new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(CallId(number), call.Tool, call.Args.ToDictionary(a => a.Key, a => (object?)a.Value))]),
+            ScriptStep.Call call => Respond(new ChatMessage(ChatRole.Assistant, [Content(call, CallId(number))]), ChatFinishReason.ToolCalls),
+            ScriptStep.Batch batch => Respond(
+                new ChatMessage(ChatRole.Assistant, [.. batch.Calls.Select((call, i) => Content(call, CallId(number, i + 1)))]),
                 ChatFinishReason.ToolCalls),
             ScriptStep.Reply reply => Respond(new ChatMessage(ChatRole.Assistant, reply.Text), ChatFinishReason.Stop),
             ScriptStep.Filter => Respond(new ChatMessage(ChatRole.Assistant, []), ChatFinishReason.ContentFilter),
@@ -106,6 +108,11 @@ public sealed class ScriptedChatClient : IChatClient
     }
 
     private static string CallId(int step) => "call-" + step.ToString(CultureInfo.InvariantCulture);
+
+    private static string CallId(int step, int call) => CallId(step) + "-" + call.ToString(CultureInfo.InvariantCulture);
+
+    private static AIContent Content(ScriptStep.Call call, string callId) =>
+        new FunctionCallContent(callId, call.Tool, call.Args.ToDictionary(a => a.Key, a => (object?)a.Value));
 
     private static ChatResponse Respond(ChatMessage message, ChatFinishReason finish) => new(message)
     {

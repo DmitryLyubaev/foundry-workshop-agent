@@ -13,7 +13,7 @@ namespace Workshop.Agent.Tools;
 /// screen, the screens list, or the tool's own <c>{"outcome","message"}</c>. A destructive press
 /// needs the approval gate's yes, asked against a fresh description of the current screen.
 /// </summary>
-public sealed class WorkshopTools
+public sealed class WorkshopTools : IToolCallRecorder
 {
     public const string ListScreensName = "list_screens";
     public const string DescribeScreenName = "describe_screen";
@@ -63,7 +63,7 @@ public sealed class WorkshopTools
 
     public IReadOnlyList<AIFunction> Functions { get; }
 
-    /// <summary>Every call so far, in order, including those refused by the budget or for their arguments.</summary>
+    /// <summary>Every call so far, in order, including those refused by the budget or for their arguments, and calls to tools that do not exist.</summary>
     public IReadOnlyList<ToolRecord> Records
     {
         get
@@ -72,6 +72,15 @@ public sealed class WorkshopTools
             {
                 return [.. records];
             }
+        }
+    }
+
+    /// <summary>Records a call the engine answered itself, in order with the tools' own calls.</summary>
+    public void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms)
+    {
+        lock (recordsLock)
+        {
+            records.Add(new ToolRecord(records.Count + 1, tool, arguments, outcome, message, null, ms, null));
         }
     }
 

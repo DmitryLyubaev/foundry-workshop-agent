@@ -6,11 +6,15 @@ namespace Workshop.Agent.Engines;
 /// Waits out throttling (spec §4.4): on <see cref="ThrottledException"/> it waits the time the
 /// model asks for and tries again, within one wait budget for its whole life, 60 s by default.
 /// A wait that would pass the budget is not started: the exception goes on to the engine, whose
-/// outcome is then <see cref="EngineOutcome.Throttled"/>. The engine builds one per run.
+/// outcome is then <see cref="EngineOutcome.Throttled"/>. Each wait is <see cref="MinimumWait"/>
+/// at least, so a model that keeps asking for no wait still spends the budget rather than being
+/// retried in a tight loop. The engine builds one per run.
 /// </summary>
 public sealed class ThrottleRetryChatClient : DelegatingChatClient
 {
     public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(60);
+
+    public static readonly TimeSpan MinimumWait = TimeSpan.FromSeconds(1);
 
     private readonly TimeSpan budget;
     private readonly Func<TimeSpan, CancellationToken, Task> delay;
@@ -49,7 +53,7 @@ public sealed class ThrottleRetryChatClient : DelegatingChatClient
     public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("The engine calls the model without streaming.");
 
-    private static TimeSpan Clamp(TimeSpan retryAfter) => retryAfter < TimeSpan.Zero ? TimeSpan.Zero : retryAfter;
+    private static TimeSpan Clamp(TimeSpan retryAfter) => retryAfter < MinimumWait ? MinimumWait : retryAfter;
 
     /// <summary>Takes the wait from the budget, or returns false, taking nothing, when it would pass it.</summary>
     private bool TryTake(TimeSpan retryAfter)

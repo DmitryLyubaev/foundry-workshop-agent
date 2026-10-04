@@ -12,6 +12,9 @@ public abstract record ScriptStep
     /// <summary><c>{ "call": "&lt;tool&gt;", "args": {…} }</c>: the model asks for one tool call.</summary>
     public sealed record Call(string Tool, IReadOnlyDictionary<string, JsonElement> Args) : ScriptStep;
 
+    /// <summary><c>{ "calls": [ { "call": …, "args": … }, … ] }</c>: the model asks for several tool calls in one answer.</summary>
+    public sealed record Batch(IReadOnlyList<Call> Calls) : ScriptStep;
+
     /// <summary><c>{ "reply": "&lt;text&gt;" }</c>: the model's final reply.</summary>
     public sealed record Reply(string Text) : ScriptStep;
 
@@ -24,7 +27,8 @@ public abstract record ScriptStep
 
 /// <summary>
 /// The scripted model's answers, in order: a JSON array with one object per step, each holding
-/// exactly one of <c>call</c> (with optional <c>args</c>), <c>reply</c>, <c>throttle</c> or <c>filter</c>.
+/// exactly one of <c>call</c> (with optional <c>args</c>), <c>calls</c> (an array of such calls),
+/// <c>reply</c>, <c>throttle</c> or <c>filter</c>.
 /// </summary>
 public sealed class Script
 {
@@ -70,10 +74,10 @@ public sealed class Script
         }
 
         var keys = step.EnumerateObject().Select(p => p.Name).ToArray();
-        var kinds = keys.Where(k => k is "call" or "reply" or "throttle" or "filter").ToArray();
+        var kinds = keys.Where(k => k is "call" or "calls" or "reply" or "throttle" or "filter").ToArray();
         if (kinds.Length != 1)
         {
-            throw Bad(number, "needs exactly one of call, reply, throttle or filter");
+            throw Bad(number, "needs exactly one of call, calls, reply, throttle or filter");
         }
 
         var allowed = kinds[0] == "call" ? new[] { "call", "args" } : kinds;
@@ -86,6 +90,7 @@ public sealed class Script
         return kinds[0] switch
         {
             "call" => ReadCall(step, value, number),
+            "calls" => ReadBatch(value, number),
             "reply" when value.ValueKind == JsonValueKind.String => new ScriptStep.Reply(value.GetString()!),
             "throttle" when value.ValueKind == JsonValueKind.Number && value.GetDouble() >= 0 => new ScriptStep.Throttle(TimeSpan.FromSeconds(value.GetDouble())),
             "filter" when value.ValueKind == JsonValueKind.True => new ScriptStep.Filter(),
@@ -93,6 +98,25 @@ public sealed class Script
             "throttle" => throw Bad(number, "has a throttle that is not a number of seconds, 0 or more"),
             _ => throw Bad(number, "has a filter that is not true"),
         };
+    }
+
+    private static ScriptStep.Batch ReadBatch(JsonElement calls, int number)
+    {
+        if (calls.ValueKind != JsonValueKind.Array || calls.GetArrayLength() == 0)
+        {
+            throw Bad(number, "has calls that are not a non-empty array");
+        }
+
+        return new ScriptStep.Batch([.. calls.EnumerateArray().Select(call =>
+        {
+            var keys = call.ValueKind == JsonValueKind.Object ? call.EnumerateObject().Select(p => p.Name).ToArray() : [];
+            if (!keys.Contains("call") || keys.Any(k => k is not ("call" or "args")))
+            {
+                throw Bad(number, "has a call in calls that is not { \"call\": …, \"args\": … }");
+            }
+
+            return ReadCall(call, call.GetProperty("call"), number);
+        })]);
     }
 
     private static ScriptStep.Call ReadCall(JsonElement step, JsonElement tool, int number)

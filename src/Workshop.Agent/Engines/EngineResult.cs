@@ -4,7 +4,8 @@ namespace Workshop.Agent.Engines;
 /// <param name="Outcome">One of the <see cref="EngineOutcome"/> values.</param>
 /// <param name="FinalReply">The model's reply when the outcome is <see cref="EngineOutcome.Completed"/>; otherwise null.</param>
 /// <param name="Calls">The model calls the model answered, in order, whatever the outcome.</param>
-public sealed record EngineResult(string Outcome, string? FinalReply, IReadOnlyList<ModelCall> Calls);
+/// <param name="Error">For <see cref="EngineOutcome.EngineError"/>, the failure's exception type and message; otherwise null.</param>
+public sealed record EngineResult(string Outcome, string? FinalReply, IReadOnlyList<ModelCall> Calls, string? Error = null);
 
 /// <summary>The ways a run can end (spec §4.4: a limit hit is the run's outcome).</summary>
 public static class EngineOutcome

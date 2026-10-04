@@ -94,6 +94,24 @@ public sealed class ScriptedChatClientTests
     }
 
     [Fact]
+    public async Task A_calls_step_is_one_response_with_every_call_in_order()
+    {
+        var model = new ScriptedChatClient(Script.Parse("""
+            [ { "reply": "First." },
+              { "calls": [ { "call": "describe_screen", "args": {} }, { "call": "open_screen", "args": { "screen": "parts" } } ] } ]
+            """));
+        await model.GetResponseAsync("go", cancellationToken: Cancel);
+
+        var response = await model.GetResponseAsync("go", cancellationToken: Cancel);
+
+        var calls = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().ToArray();
+        Assert.Equal(["describe_screen", "open_screen"], calls.Select(c => c.Name));
+        Assert.Equal(["call-2-1", "call-2-2"], calls.Select(c => c.CallId));
+        Assert.Equal(ChatFinishReason.ToolCalls, response.FinishReason);
+        Assert.Equal(1000, response.Usage!.InputTokenCount);
+    }
+
+    [Fact]
     public async Task A_script_with_no_step_left_throws()
     {
         var model = new ScriptedChatClient(Script.Parse("""[ { "reply": "Done." } ]"""));
@@ -112,6 +130,9 @@ public sealed class ScriptedChatClientTests
     [InlineData("""[ { "call": "open_screen", "args": [] } ]""", "step 1")]
     [InlineData("""[ { "throttle": -1 } ]""", "step 1")]
     [InlineData("""[ { "filter": false } ]""", "step 1")]
+    [InlineData("""[ { "calls": [] } ]""", "step 1")]
+    [InlineData("""[ { "calls": [ { "reply": "x" } ] } ]""", "step 1")]
+    [InlineData("""[ { "calls": [ { "call": "a", "args": {}, "extra": 1 } ] } ]""", "step 1")]
     public void Parse_refuses_a_malformed_script(string json, string expected)
     {
         var thrown = Assert.Throws<FormatException>(() => Script.Parse(json));
@@ -127,6 +148,7 @@ public sealed class ScriptedChatClientTests
               { "call": "press_button", "args": { "button": "save" } },
               { "call": "describe_screen" },
               { "throttle": 3 },
+              { "calls": [ { "call": "describe_screen" }, { "call": "open_screen", "args": { "screen": "parts" } } ] },
               { "filter": true },
               { "reply": "Saved." }
             ]
@@ -137,6 +159,7 @@ public sealed class ScriptedChatClientTests
             s => Assert.Equal("save", Assert.IsType<ScriptStep.Call>(s).Args["button"].GetString()),
             s => Assert.Empty(Assert.IsType<ScriptStep.Call>(s).Args),
             s => Assert.Equal(TimeSpan.FromSeconds(3), Assert.IsType<ScriptStep.Throttle>(s).RetryAfter),
+            s => Assert.Equal(["describe_screen", "open_screen"], Assert.IsType<ScriptStep.Batch>(s).Calls.Select(c => c.Tool)),
             s => Assert.IsType<ScriptStep.Filter>(s),
             s => Assert.Equal("Saved.", Assert.IsType<ScriptStep.Reply>(s).Text));
     }

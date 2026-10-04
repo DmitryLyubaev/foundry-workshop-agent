@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Workshop.Agent.Engines;
@@ -44,6 +45,7 @@ public sealed class ChatClientEngineTests
             Assert.True(c.Ms >= 0);
         });
         Assert.Equal(["tool_calls", "tool_calls", "stop"], result.Calls.Select(c => c.FinishReason));
+        Assert.Null(result.Error);
 
         // The agent's instructions and the task reach the model.
         var first = model.Requests[0];
@@ -291,6 +293,7 @@ public sealed class ChatClientEngineTests
         Assert.Equal(EngineOutcome.EngineError, result.Outcome);
         Assert.Null(result.FinalReply);
         Assert.Single(result.Calls);
+        Assert.Equal("System.InvalidOperationException: The script has no step left: all 1 are used.", result.Error);
     }
 
     [Fact]
@@ -302,6 +305,140 @@ public sealed class ChatClientEngineTests
         cts.CancelAfter(TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.RunAsync("Look.", new StubTools().WithWait, cts.Token));
+    }
+
+    [Fact]
+    public async Task Time_limit_with_a_model_that_ignores_cancellation_is_time_limit()
+    {
+        var engine = new ChatClientEngine("fake", "hung", new HungModel(throwWhenCancelled: false), new ToolBudget(), TimeSpan.FromMilliseconds(200));
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel).WaitAsync(TimeSpan.FromSeconds(10), Cancel);
+
+        Assert.Equal(EngineOutcome.TimeLimit, result.Outcome);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public async Task A_failure_after_the_time_limit_is_time_limit()
+    {
+        // A model client that turns cancellation into its own exception, not an OperationCanceledException.
+        var engine = new ChatClientEngine("fake", "hung", new HungModel(throwWhenCancelled: true), new ToolBudget(), TimeSpan.FromMilliseconds(200));
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel).WaitAsync(TimeSpan.FromSeconds(10), Cancel);
+
+        Assert.Equal(EngineOutcome.TimeLimit, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Throttle_with_no_wait_still_waits_a_second_and_spends_the_budget()
+    {
+        // 61 throttles asking for no wait: each wait is 1 s at least, so 60 are waited and the 61st is throttled.
+        var steps = string.Join(", ", Enumerable.Repeat("""{ "throttle": 0 }""", 61));
+        var model = new ScriptedChatClient(Script.Parse("[ " + steps + """, { "reply": "Never sent." } ]"""));
+        var waits = new List<TimeSpan>();
+        var engine = new ChatClientEngine("fake", "scripted", model, new ToolBudget(), FiveMinutes, TimeSpan.FromSeconds(60), Record(waits));
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.Throttled, result.Outcome);
+        Assert.Equal(60, waits.Count);
+        Assert.All(waits, w => Assert.Equal(TimeSpan.FromSeconds(1), w));
+        Assert.Equal(61, model.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_batch_of_calls_runs_in_the_models_order_unknown_tools_included()
+    {
+        var model = new ScriptedChatClient(Script.Parse("""
+            [
+              { "calls": [
+                  { "call": "describe_screen", "args": {} },
+                  { "call": "no_such_tool", "args": { "x": 1 } },
+                  { "call": "open_screen", "args": { "screen": "parts" } } ] },
+              { "reply": "Done." }
+            ]
+            """));
+        var budget = new ToolBudget();
+        var tools = new StubTools(budget);
+        var recorder = new ListRecorder(tools);
+        var engine = new ChatClientEngine("fake", "scripted", model, budget, FiveMinutes, recorder);
+
+        var result = await engine.RunAsync("Look.", tools.Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal(["describe_screen", "no_such_tool bad_arguments", "open_screen parts"], tools.Calls);
+        Assert.Equal(3, budget.Used);
+        Assert.Equal(2, result.Calls.Count);
+
+        // The model gets the three answers in its own order.
+        var answers = model.Requests[1].Messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>().ToArray();
+        Assert.Equal(["call-1-1", "call-1-2", "call-1-3"], answers.Select(a => a.CallId));
+        Assert.Equal(["ok", "bad_arguments", "ok"], answers.Select(a => OutcomeOf(a.Result)));
+        Assert.Equal(["describe_screen", "open_screen", "set_field"], model.Requests[1].Options!.Tools!.Select(t => t.Name));
+
+        var unknown = Assert.Single(recorder.Recorded);
+        Assert.Equal("no_such_tool", unknown.Tool);
+        Assert.Equal("""{"x":1}""", unknown.Arguments.GetRawText());
+        Assert.Equal("bad_arguments", unknown.Outcome);
+        Assert.True(unknown.Ms >= 0);
+    }
+
+    [Fact]
+    public async Task A_batch_at_the_budget_edge_is_budgeted_in_the_models_order()
+    {
+        // Two calls left: the unknown call takes the first, the first describe the second, and the
+        // second describe is refused, which ends the run.
+        var model = new ScriptedChatClient(Script.Parse("""
+            [
+              { "calls": [
+                  { "call": "no_such_tool", "args": {} },
+                  { "call": "describe_screen", "args": {} },
+                  { "call": "describe_screen", "args": {} } ] },
+              { "reply": "Never sent." }
+            ]
+            """));
+        var budget = new ToolBudget(2);
+        var tools = new StubTools(budget);
+        var recorder = new ListRecorder(tools);
+        var engine = new ChatClientEngine("fake", "scripted", model, budget, FiveMinutes, recorder);
+
+        var result = await engine.RunAsync("Look.", tools.Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.ToolLimit, result.Outcome);
+        Assert.Equal(["no_such_tool bad_arguments", "describe_screen", "describe_screen refused"], tools.Calls);
+        Assert.Equal("bad_arguments", Assert.Single(recorder.Recorded).Outcome);
+    }
+
+    [Fact]
+    public async Task Unknown_tool_call_is_in_the_tools_records_in_order()
+    {
+        using var app = RunningApp.Start();
+        var budget = new ToolBudget();
+        var tools = new WorkshopTools(app.App.Client, new ScriptedGate(approve: false), budget);
+        var model = new ScriptedChatClient(Script.Parse("""
+            [
+              { "call": "describe_screen", "args": {} },
+              { "call": "delete_everything", "args": { "really": "yes" } },
+              { "call": "list_screens", "args": {} },
+              { "reply": "Done." }
+            ]
+            """));
+        var engine = new ChatClientEngine("fake", "scripted", model, budget, FiveMinutes, tools);
+
+        var result = await engine.RunAsync("Look.", tools.Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal([1, 2, 3], tools.Records.Select(r => r.Index));
+        Assert.Equal(["describe_screen", "delete_everything", "list_screens"], tools.Records.Select(r => r.Tool));
+        Assert.Equal(["ok", "bad_arguments", "ok"], tools.Records.Select(r => r.Outcome));
+        var unknown = tools.Records[1];
+        Assert.Equal("""{"really":"yes"}""", unknown.Arguments.GetRawText());
+        Assert.Equal(
+            "There is no tool 'delete_everything'. The tools are list_screens, describe_screen, open_screen, set_field, select_row, press_button.",
+            unknown.Message);
+        Assert.Null(unknown.ScreenId);
+        Assert.Null(unknown.Approved);
+        Assert.Equal(3, budget.Used);
     }
 
     [Fact]
@@ -340,11 +477,69 @@ public sealed class ChatClientEngineTests
         Assert.Single(model.Requests);
     }
 
+    private static string? OutcomeOf(object? result)
+    {
+        var text = result switch
+        {
+            string s => s,
+            JsonElement { ValueKind: JsonValueKind.String } e => e.GetString(),
+            _ => null,
+        };
+        using var json = JsonDocument.Parse(text!);
+        return json.RootElement.GetProperty("outcome").GetString();
+    }
+
     private static Func<TimeSpan, CancellationToken, Task> Record(List<TimeSpan> waits) => (wait, _) =>
     {
         waits.Add(wait);
         return Task.CompletedTask;
     };
+
+    /// <summary>A model call that never answers: it ignores cancellation, or turns it into its own exception.</summary>
+    private sealed class HungModel(bool throwWhenCancelled) : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            if (!throwWhenCancelled)
+            {
+                return await new TaskCompletionSource<ChatResponse>(TaskCreationOptions.RunContinuationsAsynchronously).Task;
+            }
+
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new InvalidOperationException("The model's connection was closed.");
+            }
+
+            throw new UnreachableException();
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>Keeps what the engine reports of the calls it answers itself, and notes them among the stub tools' calls.</summary>
+    private sealed class ListRecorder(StubTools tools) : IToolCallRecorder
+    {
+        private readonly List<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms)> recorded = [];
+
+        public IReadOnlyList<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms)> Recorded => recorded;
+
+        public void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms)
+        {
+            recorded.Add((tool, arguments, outcome, message, ms));
+            tools.Note($"{tool} {outcome}");
+        }
+    }
 
     /// <summary>A model that says "Let me look." beside its one tool call, then replies "Done.".</summary>
     private sealed class TalkativeModel : IChatClient
@@ -392,6 +587,8 @@ public sealed class ChatClientEngineTests
         public IReadOnlyList<AIFunction> WithWait { get; }
 
         public IReadOnlyList<string> Calls => calls;
+
+        public void Note(string call) => calls.Add(call);
 
         private string Take(string call)
         {
