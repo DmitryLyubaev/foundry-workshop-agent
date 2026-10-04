@@ -90,8 +90,9 @@ public static class ScreenDescriber
     /// The visible controls with metadata, depth-first in tab order: a container's controls come
     /// at the container's place, as the Tab key visits them. Only a TabControl's selected page is
     /// entered. A described control's own children are its internal parts and are not entered.
+    /// The action executor finds its targets through this walk, so it acts only on what is described.
     /// </summary>
-    private static IEnumerable<(Control Control, ControlMeta Meta)> VisibleInTabOrder(Control parent)
+    internal static IEnumerable<(Control Control, ControlMeta Meta)> VisibleInTabOrder(Control parent)
     {
         IEnumerable<Control> children = parent is TabControl tabs
             ? tabs.SelectedTab is { } selected ? [selected] : []

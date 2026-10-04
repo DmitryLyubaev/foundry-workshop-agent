@@ -101,6 +101,94 @@ internal static class TestForms
         return form;
     }
 
+    /// <summary>A plain, borderless host for screens that are user controls, as the app's shell is.</summary>
+    public static Form Host() => NewForm();
+
+    /// <summary>The executor's second screen: just a search box and a button.</summary>
+    public static UserControl Other()
+    {
+        var screen = new UserControl { Dock = DockStyle.Fill };
+        Surface.Screen(screen, "other", "Other");
+        screen.Controls.Add(new Button { TabIndex = 1, Text = "Go" }.Meta("go", "Go"));
+        screen.Controls.Add(new TextBox { TabIndex = 0 }.Meta("search", "Search"));
+        return screen;
+    }
+
+    /// <summary>
+    /// The executor's main screen: one field of each kind with a range or a limit to break, a
+    /// multi-select list, a disabled list, and buttons whose handlers record that they ran.
+    /// </summary>
+    public sealed class Editor : UserControl
+    {
+        public Editor()
+        {
+            Dock = DockStyle.Fill;
+            Surface.Screen(this, "editor", "Editor");
+
+            CustomerName = new TextBox { TabIndex = 0, Text = "Ada" }.Meta("name", "Name", maxLength: 10);
+            Quantity = new NumericUpDown { TabIndex = 1, Minimum = 1, Maximum = 20, Value = 1 }.Meta("quantity", "Quantity");
+
+            Colour = new ComboBox { TabIndex = 2, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = nameof(TestForms.Colour.Name) }
+                .Meta("colour", "Colour");
+            Colour.Items.AddRange([new TestForms.Colour("R", "Red"), new TestForms.Colour("G", "Green"), new TestForms.Colour("B", "Blue")]);
+            Colour.SelectedIndex = 0;
+
+            Urgent = new CheckBox { TabIndex = 3, Checked = true }.Meta("urgent", "Urgent");
+
+            Due = new DateTimePicker
+            {
+                TabIndex = 4,
+                MinDate = new DateTime(2026, 1, 1),
+                MaxDate = new DateTime(2026, 12, 31),
+                Value = new DateTime(2026, 10, 15),
+            }.Meta("due", "Due date");
+
+            Reference = new TextBox { TabIndex = 5, Text = "R-100", Enabled = false }.Meta("reference", "Reference");
+            var secret = new TextBox { TabIndex = 6, Visible = false }.Meta("secret", "Secret");
+
+            Items = new ListView { TabIndex = 7, View = View.Details, MultiSelect = true }.Meta("items", "Items");
+            Items.Columns.Add("Number");
+            Items.Items.Add(new ListViewItem("J-1") { Name = "J-1" });
+            Items.Items.Add(new ListViewItem("J-2") { Name = "J-2" });
+            Items.Items.Add(new ListViewItem("J-3") { Name = "J-3" });
+
+            var locked = new ListView { TabIndex = 8, View = View.Details, Enabled = false }.Meta("locked", "Locked");
+            locked.Columns.Add("Number");
+            locked.Items.Add(new ListViewItem("L-1") { Name = "L-1" });
+
+            var save = new Button { TabIndex = 9, Text = "Save" }.Meta("save", "Save");
+            save.Click += (_, _) => SaveClicks++;
+
+            var refuse = new Button { TabIndex = 10, Text = "Refuse" }.Meta("refuse", "Refuse");
+            refuse.Click += (_, _) => SurfaceFeedback.Fail(refuse, "Select a job first.");
+
+            var archive = new Button { TabIndex = 11, Text = "Archive", Enabled = false }.Meta("archive", "Archive");
+            archive.Click += (_, _) => ArchiveClicks++;
+
+            CustomerName.TextChanged += (_, _) => Changes.Add("name");
+            Quantity.ValueChanged += (_, _) => Changes.Add("quantity");
+            Colour.SelectedIndexChanged += (_, _) => Changes.Add("colour");
+            Urgent.CheckedChanged += (_, _) => Changes.Add("urgent");
+            Due.ValueChanged += (_, _) => Changes.Add("due");
+
+            Controls.AddRange([CustomerName, Quantity, Colour, Urgent, Due, Reference, secret, Items, locked, save, refuse, archive]);
+        }
+
+        public TextBox CustomerName { get; }
+        public NumericUpDown Quantity { get; }
+        public ComboBox Colour { get; }
+        public CheckBox Urgent { get; }
+        public DateTimePicker Due { get; }
+        public TextBox Reference { get; }
+        public ListView Items { get; }
+
+        /// <summary>The IDs of the fields whose change event fired, in order.</summary>
+        public List<string> Changes { get; } = [];
+
+        public int SaveClicks { get; private set; }
+        public int ArchiveClicks { get; private set; }
+    }
+
     private static Form NewForm() => new()
     {
         ShowInTaskbar = false,
