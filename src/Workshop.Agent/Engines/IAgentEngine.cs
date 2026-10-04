@@ -16,9 +16,10 @@ public interface IAgentEngine
     string Model { get; }
 
     /// <summary>
-    /// Runs the task to one of the <see cref="EngineOutcome"/>s. A failure of the app's endpoint,
-    /// thrown by a tool, is not an outcome: it propagates, for the runner to report as an
-    /// infrastructure error. Cancellation by <paramref name="ct"/> propagates too.
+    /// Runs the task to one of the <see cref="EngineOutcome"/>s, ending at the run's time limit
+    /// (<see cref="Runner.EngineRun.TimeLimit"/>) with <see cref="EngineOutcome.TimeLimit"/>. A failure
+    /// of the app's endpoint, thrown by a tool, is not an outcome: it propagates, for the runner to
+    /// report as an infrastructure error. Cancellation by <paramref name="ct"/> propagates too.
     /// </summary>
     Task<EngineResult> RunAsync(string task, IReadOnlyList<AIFunction> tools, CancellationToken ct);
 }

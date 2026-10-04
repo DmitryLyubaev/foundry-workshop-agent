@@ -66,6 +66,29 @@ internal sealed class HangingModel : IChatClient
     }
 }
 
+/// <summary>
+/// A model that asks for <c>describe_screen</c> on its first call and throws <paramref name="failure"/>
+/// on every call after it, as a model's service failing mid-run would.
+/// </summary>
+internal sealed class FailingAfterOneCallModel(Exception failure) : IChatClient
+{
+    private int calls;
+
+    public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+        Interlocked.Increment(ref calls) == 1
+            ? Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call-1", "describe_screen")])) { FinishReason = ChatFinishReason.ToolCalls })
+            : Task.FromException<ChatResponse>(failure);
+
+    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose()
+    {
+    }
+}
+
 /// <summary>An approval gate that never answers until it is cancelled: a person who never comes back.</summary>
 internal sealed class HangingGate : Tools.IApprovalGate
 {

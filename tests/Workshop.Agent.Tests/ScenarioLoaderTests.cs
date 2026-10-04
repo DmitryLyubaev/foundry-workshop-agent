@@ -1,5 +1,6 @@
 using Workshop.Agent.Engines;
 using Workshop.Agent.Scenarios;
+using Workshop.Core;
 
 namespace Workshop.Agent.Tests;
 
@@ -65,6 +66,33 @@ public sealed class ScenarioLoaderTests
         Assert.Equal(["diagnos"], scenarios.Single(s => s.Id == "s01").Expect.ReplyMatches);
         Assert.Equal([@"\b(4|four)\b"], scenarios.Single(s => s.Id == "s03").Expect.ReplyMatches);
         Assert.All(scenarios.Where(s => s.Id is not ("s01" or "s03")), s => Assert.Empty(s.Expect.ReplyMatches));
+    }
+
+    [Fact]
+    public void Tables_are_the_schemas_tables()
+    {
+        // The list is kept by hand for unchangedExcept; the schema is the truth.
+        var path = Path.Combine(Path.GetTempPath(), $"workshop-tables-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var conn = WorkshopDb.CreateFresh(path).Open();
+            using var command = conn.CreateCommand();
+            command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
+            var tables = new List<string>();
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    tables.Add(reader.GetString(0));
+                }
+            }
+
+            Assert.Equal(tables.Order(StringComparer.Ordinal), ScenarioLoader.Tables.Order(StringComparer.Ordinal));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

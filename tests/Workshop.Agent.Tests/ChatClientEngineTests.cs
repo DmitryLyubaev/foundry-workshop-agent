@@ -68,6 +68,18 @@ public sealed class ChatClientEngineTests
     }
 
     [Fact]
+    public async Task Final_reply_joins_every_assistant_message_after_the_last_tool_result()
+    {
+        // The Responses API can give one answer as several message items.
+        var engine = new ChatClientEngine("fake", "split", new SplitAnswerModel(), new ToolBudget(), FiveMinutes);
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal("Job J-1009 has P-04 on order.\nNo other job matches.", result.FinalReply);
+    }
+
+    [Fact]
     public async Task The_model_client_stays_the_callers_and_is_not_disposed()
     {
         var model = new TalkativeModel();
@@ -296,6 +308,62 @@ public sealed class ChatClientEngineTests
         Assert.Equal("System.InvalidOperationException: The script has no step left: all 1 are used.", result.Error);
     }
 
+    [Theory]
+    [InlineData("http")]
+    [InlineData("auth-failed")]
+    [InlineData("credential-unavailable")]
+    [InlineData("client-401")]
+    [InlineData("client-403")]
+    [InlineData("client-500")]
+    [InlineData("client-503")]
+    [InlineData("derived-client-502")]
+    [InlineData("client-0-wrapping-http")]
+    [InlineData("wrapped-auth")]
+    public async Task Service_failure_of_the_model_is_service_error(string kind)
+    {
+        var failure = ServiceFailure(kind);
+        var engine = new ChatClientEngine("fake", "failing", new FailingAfterOneCallModel(failure), new ToolBudget(), FiveMinutes);
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.ServiceError, result.Outcome);
+        Assert.Null(result.FinalReply);
+        // The call the model answered before its service failed is kept, with its tokens.
+        Assert.Single(result.Calls);
+        Assert.Equal($"{failure.GetType().FullName}: {failure.Message}", result.Error);
+    }
+
+    [Theory]
+    [InlineData("client-400")]
+    [InlineData("client-404")]
+    [InlineData("other")]
+    public async Task Other_failures_of_the_model_are_engine_error(string kind)
+    {
+        var failure = ServiceFailure(kind);
+        var engine = new ChatClientEngine("fake", "failing", new FailingAfterOneCallModel(failure), new ToolBudget(), FiveMinutes);
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.EngineError, result.Outcome);
+        Assert.Equal($"{failure.GetType().FullName}: {failure.Message}", result.Error);
+    }
+
+    [Fact]
+    public async Task Unknown_tool_called_after_the_loop_is_abandoned_takes_nothing()
+    {
+        var budget = new ToolBudget();
+        var tools = new StubTools(budget);
+        var recorder = new ListRecorder(tools);
+        var unknown = new UnknownTool("no_such_tool", ["describe_screen"], budget, recorder);
+        using var abandoned = new CancellationTokenSource();
+        await abandoned.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await unknown.InvokeAsync(new AIFunctionArguments(), abandoned.Token));
+
+        Assert.Equal(0, budget.Used);
+        Assert.Empty(recorder.Recorded);
+    }
+
     [Fact]
     public async Task Cancelled_by_the_caller_is_not_an_outcome()
     {
@@ -381,6 +449,8 @@ public sealed class ChatClientEngineTests
         Assert.Equal("""{"x":1}""", unknown.Arguments.GetRawText());
         Assert.Equal("bad_arguments", unknown.Outcome);
         Assert.True(unknown.Ms >= 0);
+        Assert.Equal(OutcomeOf(answers[1].Result), OutcomeOf(unknown.Result));
+        Assert.Equal(answers[1].Result, unknown.Result);
     }
 
     [Fact]
@@ -438,6 +508,7 @@ public sealed class ChatClientEngineTests
             unknown.Message);
         Assert.Null(unknown.ScreenId);
         Assert.Null(unknown.Approved);
+        Assert.Equal("bad_arguments", OutcomeOf(unknown.Result));
         Assert.Equal(3, budget.Used);
     }
 
@@ -449,15 +520,18 @@ public sealed class ChatClientEngineTests
         Assert.All(
             [
                 "only the tools",
-                "describe the current screen",
+                "Describe a screen before your first action on it.",
                 "every outcome and message",
                 "rejects",
-                "never guess",
+                "When the task could mean more than one record, never guess between them: say which ones match, and stop.",
+                "When it asks for all of them, act on each.",
                 "cannot be done",
                 "facts",
             ],
             phrase => Assert.Contains(phrase, text, StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain('\n', text);
+        Assert.DoesNotContain("several records match", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Before you act on a screen", text, StringComparison.Ordinal);
     }
 
     private static async Task AssertPropagates(Exception failure)
@@ -488,6 +562,26 @@ public sealed class ChatClientEngineTests
         using var json = JsonDocument.Parse(text!);
         return json.RootElement.GetProperty("outcome").GetString();
     }
+
+    /// <summary>The failures a model's SDK may throw, by name: the SDK types are stood in for in ServiceExceptionDoubles.cs.</summary>
+    private static Exception ServiceFailure(string kind) => kind switch
+    {
+        "http" => new HttpRequestException("No such host is known."),
+        "auth-failed" => new Azure.Identity.AuthenticationFailedException("The token could not be acquired."),
+        "credential-unavailable" => new Azure.Identity.CredentialUnavailableException("No credential is available."),
+        "client-401" => new System.ClientModel.ClientResultException(401, "Unauthorized."),
+        "client-403" => new System.ClientModel.ClientResultException(403, "Forbidden."),
+        "client-500" => new System.ClientModel.ClientResultException(500, "Internal server error."),
+        "client-503" => new System.ClientModel.ClientResultException(503, "Service unavailable."),
+        "derived-client-502" => new DerivedClientResultException(502, "Bad gateway."),
+        // System.ClientModel's status is 0 when no answer came: the network failure is its inner exception.
+        "client-0-wrapping-http" => new System.ClientModel.ClientResultException(0, "The service did not answer.", new HttpRequestException("The connection was reset.")),
+        "wrapped-auth" => new InvalidOperationException("The agent could not call the model.", new Azure.Identity.AuthenticationFailedException("The token has expired.")),
+        "client-400" => new System.ClientModel.ClientResultException(400, "Bad request."),
+        "client-404" => new System.ClientModel.ClientResultException(404, "The deployment does not exist."),
+        "other" => new InvalidOperationException("The model's answer could not be read."),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
 
     private static Func<TimeSpan, CancellationToken, Task> Record(List<TimeSpan> waits) => (wait, _) =>
     {
@@ -530,19 +624,39 @@ public sealed class ChatClientEngineTests
     /// <summary>Keeps what the engine reports of the calls it answers itself, and notes them among the stub tools' calls.</summary>
     private sealed class ListRecorder(StubTools tools) : IToolCallRecorder
     {
-        private readonly List<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms)> recorded = [];
+        private readonly List<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms, string Result)> recorded = [];
 
-        public IReadOnlyList<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms)> Recorded => recorded;
+        public IReadOnlyList<(string Tool, JsonElement Arguments, string Outcome, string Message, double Ms, string Result)> Recorded => recorded;
 
-        public void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms)
+        public void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms, string result)
         {
-            recorded.Add((tool, arguments, outcome, message, ms));
+            recorded.Add((tool, arguments, outcome, message, ms, result));
             tools.Note($"{tool} {outcome}");
         }
 
         public void ModelCallAnswered(int index)
         {
             // The engine's own tests follow the calls through the stub tools; the turn index is tested end to end.
+        }
+    }
+
+    /// <summary>A model that says "Let me look." beside its one tool call, then gives its answer as two messages.</summary>
+    private sealed class SplitAnswerModel : IChatClient
+    {
+        private int calls;
+
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.Increment(ref calls) == 1
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant, [new TextContent("Let me look."), new FunctionCallContent("call-1", "describe_screen")]))
+                : new ChatResponse([new ChatMessage(ChatRole.Assistant, "Job J-1009 has P-04 on order."), new ChatMessage(ChatRole.Assistant, "No other job matches.")]));
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
         }
     }
 

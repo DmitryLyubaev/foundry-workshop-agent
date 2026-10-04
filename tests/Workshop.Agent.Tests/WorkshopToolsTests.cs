@@ -109,6 +109,7 @@ public sealed class WorkshopToolsTests
         Assert.Equal("The user did not approve pressing Cancel job.", record.Message);
         Assert.Equal("job-detail", record.ScreenId);
         Assert.False(record.Approved);
+        Assert.Equal(reply, record.Result);
 
         app.App.Close();
         var audit = AuditLines(app);
@@ -160,6 +161,7 @@ public sealed class WorkshopToolsTests
         Assert.Equal("There is no button 'cancel-job' on this screen.", record.Message);
         Assert.Equal("job-list", record.ScreenId);
         Assert.Null(record.Approved);
+        Assert.Equal(reply, record.Result);
 
         // The same text the app gives for a button it does not have, so the model sees one message either way.
         var direct = await app.App.Client.ActAsync(ActionRequest.Press("no-such-button"), Cancel);
@@ -193,6 +195,7 @@ public sealed class WorkshopToolsTests
         Assert.Equal("error", record.Outcome);
         Assert.Equal("job-detail", record.ScreenId);
         Assert.True(record.Approved);
+        Assert.Null(record.Result);
         Assert.Single(AuditLines(app), line => line is { Type: "press", Target: "cancel-job", Outcome: "validation_failed" });
     }
 
@@ -309,6 +312,30 @@ public sealed class WorkshopToolsTests
         Assert.Equal(["{}", "{}", """{"screen":"parts"}""", """{"list":"parts","row":"P-99"}"""], records.Select(r => r.Arguments.GetRawText()));
         Assert.All(records, r => Assert.True(r.Ms > 0, $"{r.Tool} took {r.Ms} ms."));
         Assert.All(records, r => Assert.Null(r.Approved));
+        Assert.Equal(screens.GetRawText(), records[0].Result);
+        Assert.StartsWith("""{"outcome":"not_found","message":"Parts has no row 'P-99'.","screen":{"id":"parts",""", records[3].Result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_call_cut_off_by_its_token_is_recorded_cancelled_and_rethrown()
+    {
+        using var app = RunningApp.Start();
+        var tools = new WorkshopTools(app.App.Client, new HangingGate(), new ToolBudget());
+        await OpenJob(tools, "J-1008");
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        limit.CancelAfter(TimeSpan.FromMilliseconds(300));
+
+        // The gate never answers, so the run's limit fires while the press is waiting on it.
+        var press = tools.Functions.Single(f => f.Name == "press_button");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await press.InvokeAsync(Arguments("""{"button":"cancel-job"}"""), limit.Token));
+
+        var record = tools.Records[^1];
+        Assert.Equal("press_button", record.Tool);
+        Assert.Equal("cancelled", record.Outcome);
+        Assert.Equal("The run ended before the call finished.", record.Message);
+        Assert.Equal("job-detail", record.ScreenId);
+        Assert.Null(record.Approved);
+        Assert.Null(record.Result);
     }
 
     [Fact]

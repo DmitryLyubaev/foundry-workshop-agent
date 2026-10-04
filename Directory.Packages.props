@@ -10,6 +10,9 @@
   <ItemGroup Label="Agent">
     <PackageVersion Include="Microsoft.Agents.AI" Version="1.23.0" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <!-- Not referenced directly: pinned here because Microsoft.Agents.AI pulls a newer one than
+         Microsoft.Extensions.AI does. 10.10.1 is the latest; Microsoft.Extensions.AI has no 10.10.1. -->
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.1" />
   </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="xunit.v3" Version="4.0.1" />

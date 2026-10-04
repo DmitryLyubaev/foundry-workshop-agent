@@ -10,8 +10,11 @@ namespace Workshop.Agent.Tools;
 /// </summary>
 public interface IToolCallRecorder
 {
-    /// <summary>A call to a tool that does not exist, answered <c>bad_arguments</c>, or <c>tool_limit</c> past the budget.</summary>
-    void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms);
+    /// <summary>
+    /// A call to a tool that does not exist, answered <c>bad_arguments</c>, or <c>tool_limit</c> past
+    /// the budget; <paramref name="result"/> is the JSON text the model was given.
+    /// </summary>
+    void RecordUnknown(string tool, JsonElement arguments, string outcome, string message, double ms, string result);
 
     /// <summary>
     /// The model call <paramref name="index"/> (its <see cref="Engines.ModelCall.Index"/>) has

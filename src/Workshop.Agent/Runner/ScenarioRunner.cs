@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Workshop.Agent.Engines;
 using Workshop.Agent.Scenarios;
 using Workshop.Agent.Surface;
@@ -22,6 +24,12 @@ public sealed class ScenarioRunner
     /// <summary>The time limit of one run (spec §4.4).</summary>
     public static readonly TimeSpan TimeLimit = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How long past its time limit the runner waits for an engine before it ends the run itself,
+    /// as <see cref="EngineOutcome.TimeLimit"/>: the limit holds even for an engine that ignores it.
+    /// </summary>
+    public static readonly TimeSpan Backstop = TimeSpan.FromSeconds(30);
+
     private const string DatabaseFileName = "workshop.db";
 
     // The app writes its audit log beside the database it is given (README, "Run the app").
@@ -32,6 +40,8 @@ public sealed class ScenarioRunner
     private readonly string appExe;
     private readonly Func<Scenario, EngineRun, IAgentEngine> engineFor;
     private readonly Func<Scenario, IApprovalGate> gateFor;
+    private readonly TimeSpan timeLimit;
+    private readonly TimeSpan backstop;
     private readonly Lock ports = new();
     private int lastPort;
 
@@ -42,13 +52,23 @@ public sealed class ScenarioRunner
     /// </param>
     /// <param name="gateFor">The approval gate for one run, such as <see cref="GateFor"/>.</param>
     public ScenarioRunner(string appExe, Func<Scenario, EngineRun, IAgentEngine> engineFor, Func<Scenario, IApprovalGate> gateFor)
+        : this(appExe, engineFor, gateFor, TimeLimit, Backstop)
+    {
+    }
+
+    /// <summary>For tests: a time limit and a backstop shorter than the study's.</summary>
+    internal ScenarioRunner(string appExe, Func<Scenario, EngineRun, IAgentEngine> engineFor, Func<Scenario, IApprovalGate> gateFor, TimeSpan timeLimit, TimeSpan backstop)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appExe);
         ArgumentNullException.ThrowIfNull(engineFor);
         ArgumentNullException.ThrowIfNull(gateFor);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeLimit, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(backstop, TimeSpan.Zero);
         this.appExe = appExe;
         this.engineFor = engineFor;
         this.gateFor = gateFor;
+        this.timeLimit = timeLimit;
+        this.backstop = backstop;
     }
 
     /// <summary>
@@ -65,8 +85,9 @@ public sealed class ScenarioRunner
     /// <summary>
     /// Runs <paramref name="s"/> once and writes its transcript to
     /// <c>&lt;outDir&gt;/&lt;scenarioId&gt;.&lt;engine&gt;.p&lt;pass&gt;.json</c>. A limit is an
-    /// outcome; the app failing to start, or its endpoint failing, is an infrastructure error in the
-    /// transcript. Cancellation, and any other exception the engine throws, propagate once the app is closed.
+    /// outcome; the app failing to start, its endpoint failing, or the model's service failing
+    /// (<see cref="EngineOutcome.ServiceError"/>) is an infrastructure error in the transcript.
+    /// Cancellation, and any other exception the engine throws, propagate once the app is closed.
     /// </summary>
     public async Task<Transcript> RunAsync(Scenario s, int pass, string outDir, CancellationToken ct)
     {
@@ -84,7 +105,7 @@ public sealed class ScenarioRunner
             CreateDatabase(db, s.Setup);
             var before = EndStateChecker.Fingerprint(db);
 
-            var run = new EngineRun(directory);
+            var run = new EngineRun(directory, timeLimit);
             var engine = engineFor(s, run);
             var gate = gateFor(s);
 
@@ -94,21 +115,28 @@ public sealed class ScenarioRunner
             // The app is closed: only now are its audit log and database read.
             var violations = GateAudit.Violations(Path.Combine(directory, AuditFileName), driven.Tools, driven.Screens);
             var check = EndStateChecker.Check(s, db, before, driven.Result?.FinalReply);
-            var infra = driven.InfraMessage is not null;
+            var outcome = driven.Result?.Outcome ?? Transcript.InfraErrorOutcome;
+
+            // The model's service failing is the infrastructure's failure too; its calls are kept for their cost.
+            var serviceError = outcome == EngineOutcome.ServiceError;
+            var infra = driven.InfraMessage is not null || serviceError;
+            var infraMessage = driven.InfraMessage ?? (serviceError ? driven.Result?.Error : null);
             var transcript = new Transcript(
                 s.Id,
                 pass,
                 engine.Name,
                 engine.Model,
-                driven.Result?.Outcome ?? Transcript.InfraErrorOutcome,
+                s.Task,
+                AgentInstructions.Sha256,
+                outcome,
                 infra,
-                driven.InfraMessage,
+                infraMessage,
                 driven.Result?.Calls ?? [],
                 driven.Tools,
                 driven.Result?.FinalReply,
                 violations,
                 check,
-                Transcript.IsSuccess(check, violations, infra),
+                Transcript.IsSuccess(check, violations, infra, outcome),
                 timer.Elapsed.TotalMilliseconds,
                 startedAt,
                 driven.Result?.Error);
@@ -128,23 +156,81 @@ public sealed class ScenarioRunner
     {
         AppProcess? app = null;
         WorkshopTools? tools = null;
+        EngineResult? result = null;
+        string? infraMessage = null;
         try
         {
             app = AppProcess.Start(appExe, db, Path.Combine(run.Directory, SessionDirectoryName), NextPort());
             tools = new WorkshopTools(app.Client, gate, run.Budget);
             run.Bind(app, tools);
-            var result = await engine.RunAsync(s.Task, tools.Functions, ct).ConfigureAwait(false);
-            return new Driven(result, null, tools.Records, [.. app.Client.SeenScreens]);
+            result = await RunWithBackstopAsync(engine, s.Task, tools.Functions, ct).ConfigureAwait(false);
         }
         catch (Exception e) when (!ct.IsCancellationRequested && IsInfrastructure(e))
         {
             Activity.Current?.AddException(e);
-            return new Driven(null, $"{e.GetType().Name}: {e.Message}", tools?.Records ?? [], [.. app?.Client.SeenScreens ?? []]);
+            infraMessage = $"{e.GetType().Name}: {e.Message}";
         }
         finally
         {
             app?.Close();
         }
+
+        // Read once the app is closed: an engine may return at its time limit a moment before the
+        // tool call the limit cut off has written its record, and closing the app gives it that moment.
+        return new Driven(result, infraMessage, tools?.Records ?? [], [.. app?.Client.SeenScreens ?? []]);
+    }
+
+    /// <summary>
+    /// Runs the engine. If it goes on past the run's time limit by the backstop
+    /// (<see cref="Backstop"/> in a study run), it is told to stop and the run ends there as
+    /// <see cref="EngineOutcome.TimeLimit"/>, without the model calls only the engine knew of. The app
+    /// is closed after this either way, so an engine that ignores the limit cannot keep the run or
+    /// the app alive.
+    /// </summary>
+    private async Task<EngineResult> RunWithBackstopAsync(IAgentEngine engine, string task, IReadOnlyList<AIFunction> tools, CancellationToken ct)
+    {
+        // Not disposed here: an engine past the backstop may still hold its token. It is disposed when the engine ends.
+        var abandon = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task<EngineResult> running;
+        try
+        {
+            running = engine.RunAsync(task, tools, abandon.Token);
+        }
+        catch
+        {
+            abandon.Dispose();
+            throw;
+        }
+
+        // Also observes the failure of an engine left behind, which nothing else awaits.
+        _ = running.ContinueWith(
+            t =>
+            {
+                _ = t.Exception;
+                abandon.Dispose();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            var waited = Task.Delay(timeLimit + backstop, deadline.Token);
+            if (await Task.WhenAny(running, waited).ConfigureAwait(false) == running)
+            {
+                await deadline.CancelAsync().ConfigureAwait(false);
+                return await running.ConfigureAwait(false);
+            }
+        }
+
+        // The caller's cancellation goes on as it is; only the clock is the backstop's.
+        ct.ThrowIfCancellationRequested();
+        await abandon.CancelAsync().ConfigureAwait(false);
+        return new EngineResult(
+            EngineOutcome.TimeLimit,
+            null,
+            [],
+            string.Create(CultureInfo.InvariantCulture, $"The engine ran past its time limit of {timeLimit.TotalSeconds:0.###} s; the runner ended the run {backstop.TotalSeconds:0.###} s later."));
     }
 
     /// <summary>

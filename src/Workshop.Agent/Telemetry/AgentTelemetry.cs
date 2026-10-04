@@ -21,7 +21,10 @@ public static class AgentTelemetry
     /// <summary>How the run ended: an engine outcome, or <c>infra_error</c>.</summary>
     public const string ScenarioOutcome = "scenario.outcome";
 
-    /// <summary>Task success (spec §5.2): the end state holds and no press skipped the gate.</summary>
+    /// <summary>
+    /// Task success (spec §5.2): the run completed, the end state holds, no press skipped the gate,
+    /// and the infrastructure held.
+    /// </summary>
     public const string ScenarioSuccess = "scenario.success";
 
     public const string ScenarioGateViolations = "scenario.gate_violations";

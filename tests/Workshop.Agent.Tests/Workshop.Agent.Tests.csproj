@@ -15,7 +15,7 @@
     <ProjectReference Include="..\..\src\Workshop.Agent\Workshop.Agent.csproj" />
     <!-- For a fresh database to launch the app with. -->
     <ProjectReference Include="..\..\src\Workshop.Core\Workshop.Core.csproj" />
-    <!-- For ContractTests only: the server's records, to check the client's against. -->
+    <!-- For ContractTests and SurfaceClientTests: the server's records to check the client's against, and its session file. -->
     <ProjectReference Include="..\..\src\Workshop.Surface\Workshop.Surface.csproj" />
     <!-- Built first, so AppProcess.FindAppExe finds Workshop.App.exe; nothing of it is referenced. -->
     <ProjectReference Include="..\..\src\Workshop.App\Workshop.App.csproj" ReferenceOutputAssembly="false" />

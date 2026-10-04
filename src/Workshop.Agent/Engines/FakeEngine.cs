@@ -4,7 +4,7 @@ namespace Workshop.Agent.Engines;
 
 /// <summary>
 /// The <c>fake</c> engine: <see cref="ChatClientEngine"/> over <see cref="ScriptedChatClient"/>,
-/// with the run's budget, its recorder and the 5-minute time limit (spec §4.4). Offline and free.
+/// with the run's budget, its recorder and its time limit, 5 minutes in a study run (spec §4.4). Offline and free.
 /// </summary>
 public static class FakeEngine
 {
@@ -17,6 +17,6 @@ public static class FakeEngine
     {
         ArgumentNullException.ThrowIfNull(script);
         ArgumentNullException.ThrowIfNull(run);
-        return new ChatClientEngine(Name, Model, new ScriptedChatClient(script), run.Budget, ScenarioRunner.TimeLimit, run);
+        return new ChatClientEngine(Name, Model, new ScriptedChatClient(script), run.Budget, run.TimeLimit, run);
     }
 }

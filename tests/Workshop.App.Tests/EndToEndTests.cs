@@ -45,6 +45,8 @@ public sealed class EndToEndTests
         Assert.Equal("Job J-1006 still has parts on order.", refused.GetProperty("message").GetString());
         Assert.Equal("Job J-1006 still has parts on order.", app.OnUi(InlineMessage));
         Assert.Equal(JobStatus.InRepair, app.Jobs.Job("J-1006")!.Status);
+        // The refused status is not left showing: the field is back to the job's own.
+        Assert.Equal("in repair", FieldValue(refused, "status"));
     }
 
     [Fact]

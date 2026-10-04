@@ -72,6 +72,6 @@ public sealed class GateAuditTests
     private static ToolRecord Approved(int index, string button, bool? approved)
     {
         using var args = JsonDocument.Parse(JsonSerializer.Serialize(new { button }));
-        return new ToolRecord(index, 1, WorkshopTools.PressButtonName, args.RootElement.Clone(), approved == false ? "denied" : "ok", null, "job-detail", 1, approved);
+        return new ToolRecord(index, 1, WorkshopTools.PressButtonName, args.RootElement.Clone(), approved == false ? "denied" : "ok", null, "job-detail", 1, approved, null);
     }
 }

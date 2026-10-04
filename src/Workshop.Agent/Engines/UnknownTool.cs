@@ -35,6 +35,8 @@ internal sealed class UnknownTool : AIFunction
 
     protected override ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
     {
+        // A loop the run has abandoned, at its time limit, must not take from the budget or add a record.
+        cancellationToken.ThrowIfCancellationRequested();
         using var span = AgentTelemetry.Source.StartActivity(AgentTelemetry.ToolExecute);
         span?.SetTag(AgentTelemetry.ToolName, Name);
         var timer = Stopwatch.StartNew();
@@ -43,8 +45,9 @@ internal sealed class UnknownTool : AIFunction
             ? ("bad_arguments", $"There is no tool '{Name}'. The tools are {(offered.Length > 0 ? string.Join(", ", offered) : "none")}.")
             : ("tool_limit", $"The tool-call limit of {budget.Max} is reached.");
 
-        recorder?.RecordUnknown(Name, ToolArguments.Snapshot(arguments), outcome, message, timer.Elapsed.TotalMilliseconds);
+        var reply = JsonSerializer.Serialize(new { outcome, message }, ReplyJson);
+        recorder?.RecordUnknown(Name, ToolArguments.Snapshot(arguments), outcome, message, timer.Elapsed.TotalMilliseconds, reply);
         span?.SetTag(AgentTelemetry.ToolOutcome, outcome);
-        return new ValueTask<object?>(JsonSerializer.Serialize(new { outcome, message }, ReplyJson));
+        return new ValueTask<object?>(reply);
     }
 }

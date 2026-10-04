@@ -4,7 +4,10 @@ namespace Workshop.Agent.Engines;
 /// <param name="Outcome">One of the <see cref="EngineOutcome"/> values.</param>
 /// <param name="FinalReply">The model's reply when the outcome is <see cref="EngineOutcome.Completed"/>; otherwise null.</param>
 /// <param name="Calls">The model calls the model answered, in order, whatever the outcome.</param>
-/// <param name="Error">For <see cref="EngineOutcome.EngineError"/>, the failure's exception type and message; otherwise null.</param>
+/// <param name="Error">
+/// For <see cref="EngineOutcome.EngineError"/> and <see cref="EngineOutcome.ServiceError"/>, the
+/// failure's exception type and message; for a run the runner ended at its backstop, why; otherwise null.
+/// </param>
 public sealed record EngineResult(string Outcome, string? FinalReply, IReadOnlyList<ModelCall> Calls, string? Error = null);
 
 /// <summary>The ways a run can end (spec §4.4: a limit hit is the run's outcome).</summary>
@@ -24,6 +27,12 @@ public static class EngineOutcome
 
     /// <summary>The model kept throttling past the wait budget.</summary>
     public const string Throttled = "throttled";
+
+    /// <summary>
+    /// The model's service failed: its network, its credentials, or its server (401, 403 or 5xx).
+    /// Not the model's doing, so the runner makes the run an infrastructure error (spec §5.4).
+    /// </summary>
+    public const string ServiceError = "service_error";
 
     /// <summary>The model call, or the loop around it, failed in any other way.</summary>
     public const string EngineError = "engine_error";

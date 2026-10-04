@@ -98,18 +98,46 @@ public sealed class ChatClientEngine : IAgentEngine
             // cancellation into an exception of its own.
             return new EngineResult(EngineOutcome.TimeLimit, null, recording.Calls);
         }
+        catch (Exception e) when (!ct.IsCancellationRequested && !loop.IsToolFailure(e) && ServiceFailure.Is(e))
+        {
+            // The model's service failed, not the model: the runner drops the run as infrastructure,
+            // keeping the calls the model answered, so their tokens are still counted.
+            Activity.Current?.AddException(e);
+            return new EngineResult(EngineOutcome.ServiceError, null, recording.Calls, Describe(e));
+        }
         catch (Exception e) when (!ct.IsCancellationRequested && !loop.IsToolFailure(e))
         {
             // The model or the loop failed; a tool's failure and the caller's cancellation go on as they were thrown.
             Activity.Current?.AddException(e);
-            return new EngineResult(EngineOutcome.EngineError, null, recording.Calls, $"{e.GetType().FullName}: {e.Message}");
+            return new EngineResult(EngineOutcome.EngineError, null, recording.Calls, Describe(e));
         }
     }
 
+    private static string Describe(Exception e) => $"{e.GetType().FullName}: {e.Message}";
+
     /// <summary>
-    /// The model's last answer: the response holds the whole run, and a model may write text
-    /// beside a tool call ("Let me look"), which is not its reply.
+    /// The model's answer: every assistant message after the last tool result, joined by new lines,
+    /// as one answer may come as several messages (the Responses API's message items). Text the
+    /// model wrote beside a tool call ("Let me look") comes before that tool's result, so it is not
+    /// the reply. Null when the model wrote no text after the last tool result.
     /// </summary>
-    private static string? LastAnswer(AgentResponse response) =>
-        response.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text;
+    private static string? LastAnswer(AgentResponse response)
+    {
+        var messages = response.Messages;
+        var start = 0;
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.Tool)
+            {
+                start = i + 1;
+                break;
+            }
+        }
+
+        var texts = messages.Skip(start)
+            .Where(m => m.Role == ChatRole.Assistant && !string.IsNullOrEmpty(m.Text))
+            .Select(m => m.Text)
+            .ToArray();
+        return texts.Length > 0 ? string.Join('\n', texts) : null;
+    }
 }

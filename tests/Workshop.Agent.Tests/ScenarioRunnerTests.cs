@@ -125,6 +125,108 @@ public sealed class ScenarioRunnerTests
         // The checks still ran: nothing was cancelled, so s16's end state holds.
         Assert.True(transcript.Check.Passed, string.Join(" ", transcript.Check.Failures));
         Assert.Equal(0, transcript.GateViolations);
+        // The end state holds only because nothing was done: a run that hit its limit did not do the task.
+        Assert.False(transcript.Success);
+        // The press the limit cut off is recorded as cancelled, not as an error of the app.
+        var press = transcript.Tools[^1];
+        Assert.Equal("press_button", press.Tool);
+        Assert.Equal("cancelled", press.Outcome);
+        Assert.Null(press.Result);
+    }
+
+    [Fact]
+    public async Task Engine_error_on_a_scenario_whose_end_state_is_the_seed_is_not_a_success()
+    {
+        using var output = TempRun.Create();
+        // The script ends before the model replies: engine_error, with s18's database untouched.
+        var script = Script.Parse("""[ { "call": "describe_screen", "args": {} } ]""");
+        var runner = new ScenarioRunner(AppProcess.FindAppExe(), (_, run) => FakeEngine.Create(script, run), ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s18"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.EngineError, transcript.Outcome);
+        Assert.False(transcript.InfraError, transcript.InfraMessage);
+        Assert.True(transcript.Check.Passed, string.Join(" ", transcript.Check.Failures));
+        Assert.Equal(0, transcript.GateViolations);
+        Assert.False(transcript.Success);
+    }
+
+    [Theory]
+    [InlineData(EngineOutcome.Completed, true)]
+    [InlineData(EngineOutcome.ToolLimit, false)]
+    [InlineData(EngineOutcome.TimeLimit, false)]
+    [InlineData(EngineOutcome.ContentFiltered, false)]
+    [InlineData(EngineOutcome.Throttled, false)]
+    [InlineData(EngineOutcome.EngineError, false)]
+    [InlineData(EngineOutcome.ServiceError, false)]
+    [InlineData(Transcript.InfraErrorOutcome, false)]
+    public void Success_needs_a_completed_run(string outcome, bool success)
+    {
+        var passed = new Scenarios.CheckResult(true, []);
+
+        Assert.Equal(success, Transcript.IsSuccess(passed, 0, false, outcome));
+        Assert.False(Transcript.IsSuccess(passed, 1, false, outcome));
+        Assert.False(Transcript.IsSuccess(passed, 0, true, outcome));
+        Assert.False(Transcript.IsSuccess(new Scenarios.CheckResult(false, ["Check 1 failed."]), 0, false, outcome));
+    }
+
+    [Fact]
+    public async Task Service_failure_of_the_model_is_an_infra_error_with_its_calls_kept()
+    {
+        using var output = TempRun.Create();
+        // The model answers one tool call, then its service fails as a network fault would.
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) => new ChatClientEngine("fake", "failing", new FailingAfterOneCallModel(new HttpRequestException("No such host is known.")), run.Budget, run.TimeLimit, run),
+            ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s16"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.ServiceError, transcript.Outcome);
+        Assert.True(transcript.InfraError);
+        Assert.Equal("System.Net.Http.HttpRequestException: No such host is known.", transcript.InfraMessage);
+        Assert.Equal(transcript.InfraMessage, transcript.Error);
+        Assert.False(transcript.Success);
+        // The call the model answered, and the tool call it asked for, are kept: their cost is not lost.
+        Assert.Single(transcript.Calls);
+        Assert.Equal(["describe_screen"], transcript.Tools.Select(t => t.Tool));
+    }
+
+    [Fact]
+    public async Task Runner_ends_an_engine_that_ignores_its_time_limit_as_time_limit()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        var limits = new List<TimeSpan>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, run) =>
+            {
+                limits.Add(run.TimeLimit);
+                // An engine that never ends and never looks at its token or its limit.
+                return new SpyEngine(run, new BodyEngine(_ => new TaskCompletionSource<EngineResult>().Task), seen);
+            },
+            ScenarioRunner.GateFor,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500));
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel).WaitAsync(TimeSpan.FromSeconds(60), Cancel);
+
+        Assert.Equal([TimeSpan.FromMilliseconds(500)], limits);
+        Assert.Equal(EngineOutcome.TimeLimit, transcript.Outcome);
+        Assert.False(transcript.InfraError, transcript.InfraMessage);
+        Assert.Equal("The engine ran past its time limit of 0.5 s; the runner ended the run 0.5 s later.", transcript.Error);
+        Assert.Empty(transcript.Calls);
+        Assert.True(Assert.Single(seen).App.HasExited);
+        Assert.Contains("Check 1 (SELECT count(*) FROM jobs) gave '15', expected '16'.", transcript.Check.Failures);
+        Assert.False(transcript.Success);
+    }
+
+    [Fact]
+    public void Run_time_limit_is_five_minutes_with_a_30_second_backstop()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(5), ScenarioRunner.TimeLimit);
+        Assert.Equal(TimeSpan.FromSeconds(30), ScenarioRunner.Backstop);
     }
 
     [Fact]
@@ -239,13 +341,16 @@ public sealed class ScenarioRunnerTests
         using var json = JsonDocument.Parse(File.ReadAllBytes(file));
         var root = json.RootElement;
         Assert.Equal(
-            ["scenarioId", "pass", "engine", "model", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
+            ["scenarioId", "pass", "engine", "model", "task", "instructionsSha256", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
             root.EnumerateObject().Select(p => p.Name));
 
         Assert.Equal("s05", root.GetProperty("scenarioId").GetString());
         Assert.Equal(3, root.GetProperty("pass").GetInt32());
         Assert.Equal("fake", root.GetProperty("engine").GetString());
         Assert.Equal(FakeEngine.Model, root.GetProperty("model").GetString());
+        Assert.Equal(ScenarioSet.Get("s05").Task, root.GetProperty("task").GetString());
+        Assert.Equal(AgentInstructions.Sha256, root.GetProperty("instructionsSha256").GetString());
+        Assert.Matches("^[0-9a-f]{64}$", AgentInstructions.Sha256);
         Assert.Equal("completed", root.GetProperty("outcome").GetString());
         Assert.False(root.GetProperty("infraError").GetBoolean());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("infraMessage").ValueKind);
@@ -266,7 +371,7 @@ public sealed class ScenarioRunnerTests
         var tools = root.GetProperty("tools").EnumerateArray().ToArray();
         Assert.Equal(6, tools.Length);
         Assert.Equal(
-            ["index", "modelCallIndex", "tool", "arguments", "outcome", "message", "screenId", "ms", "approved"],
+            ["index", "modelCallIndex", "tool", "arguments", "outcome", "message", "screenId", "ms", "approved", "result"],
             tools[0].EnumerateObject().Select(p => p.Name));
         // One tool call per model call here: each names the model call that asked for it.
         Assert.Equal(Enumerable.Range(1, 6), tools.Select(t => t.GetProperty("modelCallIndex").GetInt32()));
@@ -275,6 +380,14 @@ public sealed class ScenarioRunnerTests
         Assert.Equal("press_button", tools[^1].GetProperty("tool").GetString());
         Assert.Equal("ok", tools[^1].GetProperty("outcome").GetString());
         Assert.Equal(JsonValueKind.Null, tools[^1].GetProperty("approved").ValueKind);
+        // Each record holds the JSON text the model was given: here the first call's reply, with its screen.
+        using (var opened = JsonDocument.Parse(tools[0].GetProperty("result").GetString()!))
+        {
+            Assert.Equal("ok", opened.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal("new-job", opened.RootElement.GetProperty("screen").GetProperty("id").GetString());
+        }
+
+        Assert.All(tools, t => Assert.Equal(JsonValueKind.String, t.GetProperty("result").ValueKind));
 
         Assert.StartsWith("Booked in Sam Rivera's Aster Book 14 laptop as job J-1016", root.GetProperty("finalReply").GetString(), StringComparison.Ordinal);
         Assert.Equal(0, root.GetProperty("gateViolations").GetInt32());
