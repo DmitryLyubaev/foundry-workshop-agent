@@ -1,0 +1,476 @@
+using System.Buffers.Text;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace Workshop.Surface;
+
+/// <summary>
+/// The agent surface's HTTP endpoint, the only way into the app from outside it. It listens on
+/// 127.0.0.1 only, and a request is served only if its Host is this endpoint, it carries this
+/// launch's token, and its route, method and body are exactly what the route takes. Everything it
+/// does to the UI runs on the UI thread, one request at a time.
+/// </summary>
+/// <remarks>
+/// Routes: <c>GET /screens</c>, <c>GET /screen</c> and <c>POST /actions</c>. The token is written
+/// to the user-only <see cref="SessionFile"/> once the port is bound, and every action that reaches
+/// the executor is written to the <see cref="AuditLog"/>.
+/// </remarks>
+public sealed class SurfaceEndpoint : IDisposable
+{
+    public const int DefaultPort = 47811;
+
+    /// <summary>The largest <c>POST /actions</c> body accepted, in bytes.</summary>
+    public const int MaxBodyBytes = 65_536;
+
+    /// <summary>How long a request waits for the UI thread, in all, before it is answered 503.</summary>
+    public static readonly TimeSpan UiTimeout = TimeSpan.FromSeconds(10);
+
+    private const string TokenHeader = "X-Surface-Token";
+
+    /// <summary>The audited outcome of an action whose execution threw, which is none of <see cref="Outcomes"/>.</summary>
+    private const string FailedOutcome = "error";
+
+    private static readonly JsonDocumentOptions ActionJson = new() { AllowDuplicateProperties = false, MaxDepth = 4 };
+
+    private readonly int port;
+    private readonly string sessionDirectory;
+    private readonly Control uiAnchor;
+    private readonly IScreenNavigator navigator;
+    private readonly ActionExecutor executor;
+    private readonly AuditLog audit;
+    private readonly string[] allowedHosts;
+
+    // One UI request at a time. It is released when the UI work ends, not when its request gives up
+    // waiting, so an action that timed out is never overlapped by the next one. It is never disposed,
+    // because a timed-out action can still release it after the endpoint is.
+    private readonly SemaphoreSlim uiGate = new(1, 1);
+
+    private readonly Lock lifecycle = new();
+    private HttpListener? listener;
+    private string? token;
+    private bool disposed;
+
+    /// <param name="address">Must be <see cref="IPAddress.Loopback"/>; anything else is refused.</param>
+    /// <param name="uiAnchor">A control on the UI thread whose handle exists; requests are invoked onto it.</param>
+    /// <exception cref="ArgumentException">The address is not 127.0.0.1, or the anchor has no handle.</exception>
+    public SurfaceEndpoint(IPAddress address, int port, string sessionDirectory, Control uiAnchor, IScreenNavigator navigator, AuditLog audit)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        if (!address.Equals(IPAddress.Loopback))
+        {
+            throw new ArgumentException($"The agent surface listens on 127.0.0.1 only, not on {address}.", nameof(address));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(port, IPEndPoint.MaxPort);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionDirectory);
+        ArgumentNullException.ThrowIfNull(uiAnchor);
+        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(audit);
+
+        if (!uiAnchor.IsHandleCreated)
+        {
+            throw new ArgumentException("The UI anchor's handle must exist, so requests can be invoked onto its thread.", nameof(uiAnchor));
+        }
+
+        this.port = port;
+        this.sessionDirectory = sessionDirectory;
+        this.uiAnchor = uiAnchor;
+        this.navigator = navigator;
+        this.audit = audit;
+        executor = new ActionExecutor(navigator);
+        allowedHosts = [$"127.0.0.1:{port}", $"localhost:{port}"];
+    }
+
+    /// <summary>
+    /// Binds the port, then writes a session file with a fresh token. If the port cannot be bound,
+    /// nothing is written, so another instance's session file is left as it is.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The port cannot be bound, or the endpoint is already started.</exception>
+    public void Start()
+    {
+        lock (lifecycle)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (listener is not null)
+            {
+                throw new InvalidOperationException("The agent surface is already started.");
+            }
+
+            var bound = new HttpListener { IgnoreWriteExceptions = true };
+            bound.Prefixes.Add($"http://127.0.0.1:{port}/");
+            try
+            {
+                bound.Start();
+            }
+            catch (HttpListenerException e)
+            {
+                bound.Close();
+                throw new InvalidOperationException(
+                    $"The agent surface could not listen on 127.0.0.1:{port}. Is another instance using port {port}? ({e.Message})", e);
+            }
+
+            var fresh = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+            try
+            {
+                SessionFile.Write(sessionDirectory, port, fresh);
+            }
+            catch
+            {
+                bound.Close();
+                throw;
+            }
+
+            listener = bound;
+            token = fresh;
+            var expected = Encoding.UTF8.GetBytes(fresh);
+            _ = Task.Run(() => AcceptAsync(bound, expected));
+        }
+    }
+
+    /// <summary>
+    /// Stops listening, and deletes the session file if it still holds this start's token: a file
+    /// another instance has written since is left alone. Stopping a stopped endpoint does nothing.
+    /// </summary>
+    public void Stop()
+    {
+        lock (lifecycle)
+        {
+            if (listener is null)
+            {
+                return;
+            }
+
+            listener.Close();
+            SessionFile.DeleteIfOwned(sessionDirectory, token!);
+            listener = null;
+            token = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (lifecycle)
+        {
+            Stop();
+            disposed = true;
+        }
+    }
+
+    private async Task AcceptAsync(HttpListener bound, byte[] expectedToken)
+    {
+        while (true)
+        {
+            HttpListenerContext context;
+            try
+            {
+                context = await bound.GetContextAsync().ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is HttpListenerException or ObjectDisposedException or InvalidOperationException)
+            {
+                if (!bound.IsListening)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            // Each request is handled on its own, so one waiting for the UI never holds up the listener.
+            _ = Task.Run(() => HandleAsync(context, expectedToken));
+        }
+    }
+
+    private async Task HandleAsync(HttpListenerContext context, byte[] expectedToken)
+    {
+        var response = context.Response;
+        try
+        {
+            var reply = await RespondAsync(context.Request, expectedToken).ConfigureAwait(false);
+
+            response.StatusCode = reply.Status;
+            response.ContentType = "application/json; charset=utf-8";
+            response.ContentLength64 = reply.Body.Length;
+            if (reply.Allow is not null)
+            {
+                response.AddHeader("Allow", reply.Allow);
+            }
+
+            if (context.Request.HttpMethod != "HEAD")
+            {
+                await response.OutputStream.WriteAsync(reply.Body).ConfigureAwait(false);
+            }
+
+            response.Close();
+        }
+        catch (Exception)
+        {
+            // The client went away or the endpoint stopped while answering: there is no one to tell.
+            try
+            {
+                response.Abort();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+    }
+
+    /// <summary>The checks, in order: Host, token, route and method, body, then the UI.</summary>
+    private async Task<Reply> RespondAsync(HttpListenerRequest request, byte[] expectedToken)
+    {
+        if (!IsAllowedHost(request.Headers["Host"]))
+        {
+            return Error(HttpStatusCode.Forbidden, "bad_host");
+        }
+
+        if (!HasToken(request, expectedToken))
+        {
+            return Error(HttpStatusCode.Unauthorized, "unauthorized");
+        }
+
+        var route = request.Url?.AbsolutePath;
+        var method = route switch
+        {
+            "/screens" or "/screen" => "GET",
+            "/actions" => "POST",
+            _ => null,
+        };
+
+        if (method is null)
+        {
+            return Error(HttpStatusCode.NotFound, "not_found");
+        }
+
+        if (request.HttpMethod != method)
+        {
+            return Error(HttpStatusCode.MethodNotAllowed, "method_not_allowed") with { Allow = method };
+        }
+
+        try
+        {
+            return route switch
+            {
+                "/screens" => await OnUiAsync(ListScreens).ConfigureAwait(false),
+                "/screen" => await OnUiAsync(() => ScreenDescriber.Describe(navigator.Current)).ConfigureAwait(false),
+                _ => await PostActionAsync(request).ConfigureAwait(false),
+            };
+        }
+        catch (Exception)
+        {
+            // Never echoes the exception: its text is the app's business, not the caller's.
+            return Error(HttpStatusCode.InternalServerError, "internal_error");
+        }
+    }
+
+    private bool IsAllowedHost(string? host) =>
+        host is not null && allowedHosts.Any(allowed => string.Equals(allowed, host, StringComparison.OrdinalIgnoreCase));
+
+    private static bool HasToken(HttpListenerRequest request, byte[] expectedToken) =>
+        request.Headers.GetValues(TokenHeader) is [var sent]
+        && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(sent), expectedToken);
+
+    private async Task<Reply> PostActionAsync(HttpListenerRequest request)
+    {
+        if (!MediaTypeHeaderValue.TryParse(request.ContentType, out var contentType)
+            || !string.Equals(contentType.MediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            return Error(HttpStatusCode.UnsupportedMediaType, "unsupported_media_type");
+        }
+
+        // Refused by its declared length before reading; a chunked body is refused once it passes the limit.
+        if (request.ContentLength64 > MaxBodyBytes || await ReadBodyAsync(request.InputStream).ConfigureAwait(false) is not { } body)
+        {
+            return Error(HttpStatusCode.RequestEntityTooLarge, "payload_too_large");
+        }
+
+        if (!TryParseAction(body, out var action))
+        {
+            return Error(HttpStatusCode.BadRequest, "bad_request");
+        }
+
+        return await OnUiAsync(() => ExecuteAndAudit(action)).ConfigureAwait(false);
+    }
+
+    /// <summary>The body, or null if it is longer than <see cref="MaxBodyBytes"/>.</summary>
+    private static async Task<byte[]?> ReadBodyAsync(Stream input)
+    {
+        var buffer = new byte[MaxBodyBytes + 1];
+        var length = 0;
+        int read;
+        while (length < buffer.Length && (read = await input.ReadAsync(buffer.AsMemory(length)).ConfigureAwait(false)) > 0)
+        {
+            length += read;
+        }
+
+        return length > MaxBodyBytes ? null : buffer[..length];
+    }
+
+    /// <summary>
+    /// Reads one action. The body must be a JSON object whose <c>type</c> is one of
+    /// <see cref="ActionTypes"/>; the targets are strings, and the value may also be a number or a
+    /// boolean, taken as its JSON text. Other properties are ignored, and a repeated one is refused.
+    /// </summary>
+    private static bool TryParseAction(byte[] body, [NotNullWhen(true)] out SurfaceAction? action)
+    {
+        action = null;
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(body, ActionJson);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var texts = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Name is not ("type" or "screen" or "field" or "value" or "list" or "row" or "button"))
+                {
+                    continue;
+                }
+
+                var isValue = property.Name == "value";
+                switch (property.Value.ValueKind)
+                {
+                    case JsonValueKind.String:
+                        texts[property.Name] = property.Value.GetString();
+                        break;
+                    case JsonValueKind.Null:
+                        texts[property.Name] = null;
+                        break;
+                    case JsonValueKind.Number when isValue:
+                        // JSON's number text is already culture-invariant: 2 stays "2", 2.50 stays "2.50".
+                        texts[property.Name] = property.Value.GetRawText();
+                        break;
+                    case JsonValueKind.True when isValue:
+                        texts[property.Name] = "true";
+                        break;
+                    case JsonValueKind.False when isValue:
+                        texts[property.Name] = "false";
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            var type = texts.GetValueOrDefault("type");
+            if (type is not (ActionTypes.Open or ActionTypes.Set or ActionTypes.Select or ActionTypes.Press))
+            {
+                return false;
+            }
+
+            action = new SurfaceAction(
+                type,
+                texts.GetValueOrDefault("screen"),
+                texts.GetValueOrDefault("field"),
+                texts.GetValueOrDefault("value"),
+                texts.GetValueOrDefault("list"),
+                texts.GetValueOrDefault("row"),
+                texts.GetValueOrDefault("button"));
+            return true;
+        }
+    }
+
+    private IReadOnlyList<ScreenEntry> ListScreens() => [.. navigator.Screens.Select(s => new ScreenEntry(s.Id, s.Title))];
+
+    /// <summary>Runs on the UI thread. The action is audited whatever happens once it reaches the executor.</summary>
+    private ActionResult ExecuteAndAudit(SurfaceAction action)
+    {
+        var outcome = FailedOutcome;
+        try
+        {
+            var result = executor.Execute(action);
+            outcome = result.Outcome;
+            return result;
+        }
+        finally
+        {
+            audit.Append(action, outcome);
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> on the UI thread, after any earlier UI request has finished, and
+    /// answers its result as JSON; or answers 503 if the whole wait passes <see cref="UiTimeout"/>.
+    /// A timed-out work item is not abandoned: it still runs, and still holds the gate until it ends.
+    /// </summary>
+    private async Task<Reply> OnUiAsync<T>(Func<T> work)
+    {
+        var waited = Stopwatch.StartNew();
+
+        if (!await uiGate.WaitAsync(UiTimeout).ConfigureAwait(false))
+        {
+            return Error(HttpStatusCode.ServiceUnavailable, "ui_timeout");
+        }
+
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            // BeginInvoke, Invoke's asynchronous form, so this thread can stop waiting at the timeout.
+            uiAnchor.BeginInvoke((MethodInvoker)(() =>
+            {
+                try
+                {
+                    done.SetResult(work());
+                }
+                catch (Exception e)
+                {
+                    done.SetException(e);
+                }
+            }));
+        }
+        catch
+        {
+            uiGate.Release();
+            throw;
+        }
+
+        _ = done.Task.ContinueWith(
+            finished =>
+            {
+                // Observed here, because a request that timed out no longer awaits it.
+                _ = finished.Exception;
+                uiGate.Release();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        var left = UiTimeout - waited.Elapsed;
+        T value;
+        try
+        {
+            value = await done.Task.WaitAsync(left > TimeSpan.Zero ? left : TimeSpan.Zero).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (!done.Task.IsCompleted)
+        {
+            return Error(HttpStatusCode.ServiceUnavailable, "ui_timeout");
+        }
+
+        return new Reply((int)HttpStatusCode.OK, JsonSerializer.SerializeToUtf8Bytes(value, SurfaceJson.Options));
+    }
+
+    private static Reply Error(HttpStatusCode status, string error) =>
+        new((int)status, Encoding.UTF8.GetBytes($$"""{"error":"{{error}}"}"""));
+
+    /// <summary>A status and its JSON body; <see cref="Allow"/> is the route's one method, sent with a 405.</summary>
+    private readonly record struct Reply(int Status, byte[] Body, string? Allow = null);
+
+    private sealed record ScreenEntry(string Id, string Title);
+}
