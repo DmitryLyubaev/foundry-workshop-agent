@@ -47,17 +47,17 @@ public sealed class WorkshopTools
         Functions =
         [
             Create(ListScreensName, ToolDescriptions.ListScreens, (AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(ListScreensName, arguments, [], ListScreensAsync, ct)),
+                RunAsync(ListScreensName, arguments, [], (_, c) => ListScreensAsync(c), ct)),
             Create(DescribeScreenName, ToolDescriptions.DescribeScreen, (AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(DescribeScreenName, arguments, [], DescribeAsync, ct)),
+                RunAsync(DescribeScreenName, arguments, [], (_, c) => DescribeAsync(c), ct)),
             Create(OpenScreenName, ToolDescriptions.OpenScreen, (string screen, AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(OpenScreenName, arguments, [nameof(screen)], c => ActAsync(ActionRequest.Open(screen), c), ct)),
+                RunAsync(OpenScreenName, arguments, [nameof(screen)], (_, c) => ActAsync(ActionRequest.Open(screen), c), ct)),
             Create(SetFieldName, ToolDescriptions.SetField, (string field, string value, AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(SetFieldName, arguments, [nameof(field), nameof(value)], c => ActAsync(ActionRequest.Set(field, value), c), ct)),
+                RunAsync(SetFieldName, arguments, [nameof(field), nameof(value)], (_, c) => ActAsync(ActionRequest.Set(field, value), c), ct)),
             Create(SelectRowName, ToolDescriptions.SelectRow, (string list, string row, AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(SelectRowName, arguments, [nameof(list), nameof(row)], c => ActAsync(ActionRequest.Select(list, row), c), ct)),
+                RunAsync(SelectRowName, arguments, [nameof(list), nameof(row)], (_, c) => ActAsync(ActionRequest.Select(list, row), c), ct)),
             Create(PressButtonName, ToolDescriptions.PressButton, (string button, AIFunctionArguments arguments, CancellationToken ct) =>
-                RunAsync(PressButtonName, arguments, [nameof(button)], c => PressAsync(button, c), ct)),
+                RunAsync(PressButtonName, arguments, [nameof(button)], (call, c) => PressAsync(button, call, c), ct)),
         ];
     }
 
@@ -85,7 +85,7 @@ public sealed class WorkshopTools
             MarshalResult = static (result, _, _) => new ValueTask<object?>(result),
         });
 
-    private async Task<string> RunAsync(string tool, AIFunctionArguments arguments, string[] required, Func<CancellationToken, Task<Result>> work, CancellationToken ct)
+    private async Task<string> RunAsync(string tool, AIFunctionArguments arguments, string[] required, Func<Call, CancellationToken, Task<Result>> work, CancellationToken ct)
     {
         await turn.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -94,24 +94,27 @@ public sealed class WorkshopTools
             span?.SetTag(AgentTelemetry.ToolName, tool);
             var timer = Stopwatch.StartNew();
             var given = ToolArguments.Snapshot(arguments);
+            var call = new Call();
 
             Result result;
             try
             {
                 result = !budget.TryTake() ? Message("tool_limit", $"The tool-call limit of {budget.Max} is reached.")
                     : ToolArguments.FirstProblem(arguments, required) is { } problem ? Message("bad_arguments", problem)
-                    : await work(ct).ConfigureAwait(false);
+                    : await work(call, ct).ConfigureAwait(false);
             }
             catch (SurfaceHttpException e) when (e.Status == 400)
             {
                 // The endpoint could not read one valid action: the arguments' fault, not the app's.
-                result = Message("bad_arguments", $"The app could not read the action: {e.Body}");
+                result = Message("bad_arguments", $"The app could not read the action: {e.Body}") with { ScreenId = call.ScreenId, Approved = call.Approved };
             }
             catch (Exception e)
             {
                 // The app or the connection failed: recorded and traced, then left to the engine and the runner.
-                Record(tool, given, new Result("", "error", e.Message, null), timer);
+                // An approval already given stays on the record: a press that failed on the way may still have run.
+                Record(tool, given, new Result("", "error", e.Message, call.ScreenId, call.Approved), timer);
                 span?.SetTag(AgentTelemetry.ToolOutcome, "error");
+                span?.SetTag(AgentTelemetry.ToolApproved, call.Approved);
                 span?.SetStatus(ActivityStatusCode.Error, e.Message);
                 throw;
             }
@@ -146,26 +149,32 @@ public sealed class WorkshopTools
     }
 
     /// <summary>
-    /// Looks at the screen as it is now, never as the model last saw it: the gate is asked when the
-    /// fresh description flags the button destructive. A button that is not on the screen is pressed
-    /// anyway, so the app answers <c>not_found</c> with its own message.
+    /// Looks at the screen as it is now, never as the model last saw it, and presses only a button
+    /// that fresh description shows: the gate is asked when it flags the button destructive. A
+    /// button that is not there is answered <c>not_found</c> here, with the app's own message, and
+    /// never sent, so the app's audit log holds no press that the gate did not see.
     /// </summary>
-    private async Task<Result> PressAsync(string buttonId, CancellationToken ct)
+    private async Task<Result> PressAsync(string buttonId, Call call, CancellationToken ct)
     {
         var screen = await client.DescribeAsync(ct).ConfigureAwait(false);
+        call.ScreenId = screen.Id;
         var button = screen.Buttons.FirstOrDefault(b => b.Id == buttonId);
 
-        bool? approved = null;
-        if (button is { Destructive: true })
+        if (button is null)
         {
-            approved = await gate.ApproveAsync(button.Id, button.Label, screen.Id, ct).ConfigureAwait(false);
-            if (approved == false)
+            return Message("not_found", $"There is no button '{buttonId}' on this screen.") with { ScreenId = screen.Id };
+        }
+
+        if (button.Destructive)
+        {
+            call.Approved = await gate.ApproveAsync(button.Id, button.Label, screen.Id, ct).ConfigureAwait(false);
+            if (call.Approved == false)
             {
                 return Message("denied", $"The user did not approve pressing {button.Label}.") with { ScreenId = screen.Id, Approved = false };
             }
         }
 
-        return await ActAsync(ActionRequest.Press(buttonId), ct).ConfigureAwait(false) with { Approved = approved };
+        return await ActAsync(ActionRequest.Press(buttonId), ct).ConfigureAwait(false) with { Approved = call.Approved };
     }
 
     private void Record(string tool, JsonElement arguments, Result result, Stopwatch timer)
@@ -188,9 +197,17 @@ public sealed class WorkshopTools
         return options;
     }
 
+    /// <summary>What a call has learnt so far, kept for its record if the call then fails.</summary>
+    private sealed class Call
+    {
+        public string? ScreenId { get; set; }
+
+        public bool? Approved { get; set; }
+    }
+
     /// <summary>What a call did: the text the model sees, and what the record and the span keep.</summary>
     private sealed record Result(string Json, string Outcome, string? Message, string? ScreenId, bool? Approved = null);
 
-    /// <summary>The tool's own answer, when the app was not asked or could not answer: denied, bad_arguments or tool_limit.</summary>
+    /// <summary>The tool's own answer, when the app was not asked or could not answer: denied, not_found, bad_arguments or tool_limit.</summary>
     private sealed record ToolMessage(string Outcome, string Message);
 }

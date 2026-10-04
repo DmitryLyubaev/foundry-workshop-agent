@@ -144,6 +144,59 @@ public sealed class WorkshopToolsTests
     }
 
     [Fact]
+    public async Task Press_unknown_button_is_not_found_and_never_reaches_the_app()
+    {
+        using var app = RunningApp.Start();
+        var gate = new ScriptedGate(approve: true);
+        var tools = new WorkshopTools(app.App.Client, gate, new ToolBudget());
+
+        // The job list has no Cancel job: the fresh description says so, and the tool answers itself.
+        var reply = await InvokeText(tools, "press_button", new { button = "cancel-job" });
+
+        Assert.Equal("""{"outcome":"not_found","message":"There is no button 'cancel-job' on this screen."}""", reply);
+        Assert.Empty(gate.Asked);
+        var record = Assert.Single(tools.Records);
+        Assert.Equal("not_found", record.Outcome);
+        Assert.Equal("There is no button 'cancel-job' on this screen.", record.Message);
+        Assert.Equal("job-list", record.ScreenId);
+        Assert.Null(record.Approved);
+
+        // The same text the app gives for a button it does not have, so the model sees one message either way.
+        var direct = await app.App.Client.ActAsync(ActionRequest.Press("no-such-button"), Cancel);
+        Assert.Equal("There is no button 'no-such-button' on this screen.", direct.Message);
+
+        app.App.Close();
+        var audit = AuditLines(app);
+        Assert.DoesNotContain(audit, line => line is { Type: "press", Target: "cancel-job" });
+        Assert.Equal(["no-such-button"], audit.Select(line => line.Target));
+    }
+
+    [Fact]
+    public async Task Approved_press_keeps_its_approval_when_the_app_refuses_or_the_call_fails()
+    {
+        using var app = RunningApp.Start();
+        var tools = new WorkshopTools(app.App.Client, new ScriptedGate(approve: true), new ToolBudget());
+        await OpenJob(tools, "J-1005");
+
+        // A ready job cannot be cancelled: the app refuses, and the approval given stays on the record.
+        var refused = await Invoke(tools, "press_button", new { button = "cancel-job" });
+
+        Assert.Equal("validation_failed", refused.GetProperty("outcome").GetString());
+        Assert.Equal("A job that is ready cannot become cancelled.", refused.GetProperty("message").GetString());
+        Assert.True(tools.Records[^1].Approved);
+
+        // The app goes away between the approval and the press: the call fails, and the record still says approved.
+        var failing = new WorkshopTools(app.App.Client, new CallbackGate(app.App.Close), new ToolBudget());
+        await Assert.ThrowsAnyAsync<Exception>(() => InvokeText(failing, "press_button", new { button = "cancel-job" }));
+
+        var record = Assert.Single(failing.Records);
+        Assert.Equal("error", record.Outcome);
+        Assert.Equal("job-detail", record.ScreenId);
+        Assert.True(record.Approved);
+        Assert.Single(AuditLines(app), line => line is { Type: "press", Target: "cancel-job", Outcome: "validation_failed" });
+    }
+
+    [Fact]
     public async Task Budget_stops_at_25_without_calling_the_app()
     {
         using var app = RunningApp.Start();
@@ -349,6 +402,16 @@ public sealed class WorkshopToolsTests
         return File.Exists(path)
             ? [.. File.ReadAllLines(path).Select(line => JsonSerializer.Deserialize<AuditLine>(line, JsonSerializerOptions.Web)!)]
             : [];
+    }
+
+    /// <summary>A gate that runs something when it is asked, then approves.</summary>
+    private sealed class CallbackGate(Action onAsk) : IApprovalGate
+    {
+        public Task<bool> ApproveAsync(string buttonId, string label, string screenId, CancellationToken ct)
+        {
+            onAsk();
+            return Task.FromResult(true);
+        }
     }
 
     private sealed record AuditLine(string Type, string? Target, string? Value, string Outcome);
