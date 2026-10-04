@@ -78,6 +78,28 @@ public sealed class WorkshopDbTests
     }
 
     [Fact]
+    public void OpenExisting_opens_the_same_data()
+    {
+        using var temp = new TempDb();
+        Assert.True(new JobService(temp.Db).BookIn("D-001", "Fan is very loud", out var jobId).Ok);
+
+        var reopened = new JobService(WorkshopDb.OpenExisting(temp.Path));
+
+        Assert.Equal("Fan is very loud", reopened.Job(jobId!)!.Fault);
+    }
+
+    [Fact]
+    public void OpenExisting_refuses_a_missing_file_and_does_not_create_it()
+    {
+        var path = TempDb.NewPath();
+
+        var refused = Assert.Throws<FileNotFoundException>(() => WorkshopDb.OpenExisting(path));
+
+        Assert.Contains(path, refused.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
     public void Two_fresh_copies_are_independent()
     {
         using var first = new TempDb();

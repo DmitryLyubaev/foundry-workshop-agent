@@ -223,6 +223,30 @@ public sealed class ActionExecutorTests
     }
 
     [Fact]
+    public void Press_with_information_is_ok_with_its_message()
+    {
+        OnUi((_, executor) =>
+        {
+            var result = executor.Execute(Press("inform"));
+
+            Assert.Equal(Outcomes.Ok, result.Outcome);
+            Assert.Equal("Added on order: not enough in stock.", result.Message);
+        });
+    }
+
+    [Fact]
+    public void Press_with_a_refusal_and_information_is_validation_failed_with_the_refusal()
+    {
+        OnUi((_, executor) =>
+        {
+            var result = executor.Execute(Press("mixed"));
+
+            Assert.Equal(Outcomes.ValidationFailed, result.Outcome);
+            Assert.Equal("The parts of a job that is ready cannot change.", result.Message);
+        });
+    }
+
+    [Fact]
     public void Press_disabled_is_disabled()
     {
         OnUi((navigator, executor) =>
@@ -269,12 +293,29 @@ public sealed class ActionExecutorTests
     }
 
     [Fact]
+    public void Information_is_cleared_after_each_press()
+    {
+        OnUi((navigator, executor) =>
+        {
+            Assert.Equal("Added on order: not enough in stock.", executor.Execute(Press("inform")).Message);
+            Assert.Null(executor.Execute(Press("save")).Message);
+
+            // Information left by a person's own click, before the press, is not this press's message.
+            SurfaceFeedback.Inform(navigator.Editor.CustomerName, "Left over from a person's click.");
+            var next = executor.Execute(Press("save"));
+            Assert.Equal(Outcomes.Ok, next.Outcome);
+            Assert.Null(next.Message);
+        });
+    }
+
+    [Fact]
     public void Feedback_from_a_control_outside_any_screen_throws()
     {
         StaRunner.Run(() =>
         {
             using var loose = new TextBox();
             Assert.Throws<ArgumentException>(() => SurfaceFeedback.Fail(loose, "No screen to report on."));
+            Assert.Throws<ArgumentException>(() => SurfaceFeedback.Inform(loose, "No screen to report on."));
         });
     }
 

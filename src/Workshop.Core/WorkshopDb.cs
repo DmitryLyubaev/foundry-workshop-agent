@@ -46,6 +46,22 @@ public sealed class WorkshopDb
         }
     }
 
+    /// <summary>Opens a database file that already exists, such as a fresh copy a test runner made.</summary>
+    /// <exception cref="FileNotFoundException">There is no file at <paramref name="path"/>.</exception>
+    public static WorkshopDb OpenExisting(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        // The connections open read-write without create, so a missing file would fail later anyway;
+        // checking here fails at start-up, with the path in the message.
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"There is no workshop database at '{path}'.", path);
+        }
+
+        return new WorkshopDb(path);
+    }
+
     public SqliteConnection Open()
     {
         var conn = new SqliteConnection(_connectionString);

@@ -165,13 +165,25 @@ internal static class TestForms
             var archive = new Button { TabIndex = 11, Text = "Archive", Enabled = false }.Meta("archive", "Archive");
             archive.Click += (_, _) => ArchiveClicks++;
 
+            var inform = new Button { TabIndex = 12, Text = "Inform" }.Meta("inform", "Inform");
+            inform.Click += (_, _) => SurfaceFeedback.Inform(inform, "Added on order: not enough in stock.");
+
+            // Informs, then refuses, then informs again: the refusal is the press's outcome.
+            var mixed = new Button { TabIndex = 13, Text = "Mixed" }.Meta("mixed", "Mixed");
+            mixed.Click += (_, _) =>
+            {
+                SurfaceFeedback.Inform(mixed, "Checked the stock.");
+                SurfaceFeedback.Fail(mixed, "The parts of a job that is ready cannot change.");
+                SurfaceFeedback.Inform(mixed, "Checked again.");
+            };
+
             CustomerName.TextChanged += (_, _) => Changes.Add("name");
             Quantity.ValueChanged += (_, _) => Changes.Add("quantity");
             Colour.SelectedIndexChanged += (_, _) => Changes.Add("colour");
             Urgent.CheckedChanged += (_, _) => Changes.Add("urgent");
             Due.ValueChanged += (_, _) => Changes.Add("due");
 
-            Controls.AddRange([CustomerName, Quantity, Colour, Urgent, Due, Reference, secret, Items, locked, save, refuse, archive]);
+            Controls.AddRange([CustomerName, Quantity, Colour, Urgent, Due, Reference, secret, Items, locked, save, refuse, archive, inform, mixed]);
         }
 
         public TextBox CustomerName { get; }

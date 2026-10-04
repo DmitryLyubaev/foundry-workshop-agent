@@ -210,20 +210,25 @@ public sealed class ActionExecutor(IScreenNavigator navigator)
             return (Outcomes.Disabled, $"{button.Label} is disabled.");
         }
 
-        // A refusal left by a person's own click before this press is not this press's outcome.
+        // A message left by a person's own click before this press is not this press's outcome.
         _ = SurfaceFeedback.Take(screen);
 
-        string? refusal;
+        SurfaceFeedback.Feedback? feedback;
         try
         {
             ((Button)ControlOf(screen, button.Id)).PerformClick();
         }
         finally
         {
-            refusal = SurfaceFeedback.Take(screen);
+            feedback = SurfaceFeedback.Take(screen);
         }
 
-        return refusal is null ? Ok : (Outcomes.ValidationFailed, refusal);
+        return feedback switch
+        {
+            null => Ok,
+            { Failed: true } => (Outcomes.ValidationFailed, feedback.Message),
+            _ => (Outcomes.Ok, feedback.Message),
+        };
     }
 
     /// <summary>The described control with this ID; the description it came from guarantees it exists once.</summary>
