@@ -398,7 +398,7 @@ the fingerprint then skips those tables.
   must pass.
 - **a wrong path:** a plausible mistake, whose checks must fail. Examples:
   - setting the wrong job
-  - guessing between Tom's two jobs
+  - guessing between the bakery's two open jobs
   - pressing `cancel-job` without approval
 
   For s16, the wrong path's model presses `cancel-job` after the gate denied it. The gate blocks
