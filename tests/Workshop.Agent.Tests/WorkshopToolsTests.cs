@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using Workshop.Agent.Runner;
 using Workshop.Agent.Surface;
 using Workshop.Agent.Telemetry;
 using Workshop.Agent.Tools;
@@ -339,6 +340,53 @@ public sealed class WorkshopToolsTests
     }
 
     [Fact]
+    public async Task Approved_press_cut_off_by_the_limit_keeps_its_record_and_is_not_a_violation()
+    {
+        using var app = RunningApp.Start();
+        var session = SessionReader.WaitFor(app.Run.SessionDirectory, TimeSpan.FromSeconds(10));
+        // The app does the press, and its reply is then held: the call is still running, its token
+        // cancelled or not, when the run ends, as a reply on its way back at the limit would be.
+        using var held = new HeldPressReply("cancel-job") { InnerHandler = new SocketsHttpHandler { UseProxy = false } };
+        using var client = new SurfaceClient(session.Port, session.Token, held);
+        var tools = new WorkshopTools(client, new ScriptedGate(approve: true), new ToolBudget());
+        await OpenJob(tools, "J-1008");
+        IReadOnlyList<ToolRecord>? atSend = null;
+        held.Sending = () => atSend = tools.Records;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+
+        var press = tools.Functions.Single(f => f.Name == "press_button").InvokeAsync(Arguments("""{"button":"cancel-job"}"""), limit.Token).AsTask();
+        await held.Done.Task.WaitAsync(TimeSpan.FromSeconds(30), Cancel);
+        await limit.CancelAsync();
+
+        // As the runner does: the app is closed, then the records are read and the gate audited,
+        // before the cut-off call has written anything more.
+        app.App.Close();
+        var records = tools.Records;
+        var violations = GateAudit.Violations(Path.Combine(app.Run.Directory, "audit.jsonl"), records, [.. client.SeenScreens]);
+
+        Assert.Contains(AuditLines(app), line => line is { Type: "press", Target: "cancel-job", Outcome: "ok" });
+        Assert.Equal(0, violations);
+        // The record was written before the press was sent, with the gate's approval.
+        var sent = Assert.Single(atSend!, r => r.Tool == "press_button" && r.Arguments.GetProperty("button").GetString() == "cancel-job");
+        Assert.True(sent.Approved);
+        var cut = records[^1];
+        Assert.Equal(sent.Index, cut.Index);
+        Assert.True(cut.Approved);
+        Assert.Equal("cancelled", cut.Outcome);
+        Assert.Equal("job-detail", cut.ScreenId);
+        Assert.Null(cut.Result);
+
+        // The call then ends: its record is updated in place, not added again.
+        held.Release();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => press);
+        var ended = Assert.Single(tools.Records, r => r.Index == sent.Index);
+        Assert.Equal(records.Count, tools.Records.Count);
+        Assert.Equal("cancelled", ended.Outcome);
+        Assert.True(ended.Approved);
+        Assert.True(ended.Ms >= cut.Ms);
+    }
+
+    [Fact]
     public async Task Each_call_is_a_tool_execute_span_with_name_outcome_and_approval()
     {
         using var app = RunningApp.Start();
@@ -442,4 +490,43 @@ public sealed class WorkshopToolsTests
     }
 
     private sealed record AuditLine(string Type, string? Target, string? Value, string Outcome);
+
+    /// <summary>
+    /// Passes every request to the app; for a press of <paramref name="button"/>, it calls
+    /// <see cref="Sending"/> before the request goes, and once the app has answered it holds the
+    /// answer, whatever the call's token says, until <see cref="Release"/>.
+    /// </summary>
+    private sealed class HeldPressReply(string button) : DelegatingHandler
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Action? Sending { get; set; }
+
+        /// <summary>Set once the app has done the press.</summary>
+        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => release.TrySetResult();
+
+        protected override void Dispose(bool disposing)
+        {
+            // A test that fails while the answer is held must not leave the call waiting for ever.
+            Release();
+            base.Dispose(disposing);
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+            if (request.Method != HttpMethod.Post || !body.Contains($"\"{button}\"", StringComparison.Ordinal))
+            {
+                return await base.SendAsync(request, cancellationToken);
+            }
+
+            Sending?.Invoke();
+            var response = await base.SendAsync(request, cancellationToken);
+            Done.TrySetResult();
+            await release.Task;
+            return response;
+        }
+    }
 }

@@ -23,13 +23,20 @@ public sealed class SurfaceClient : IDisposable
     private readonly List<Screen> seen = [];
 
     public SurfaceClient(int port, string token)
+        // No proxy: a system proxy must never see the token, and loopback needs none.
+        : this(port, token, new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(3) })
+    {
+    }
+
+    /// <summary>For tests: a handler that stands between the client and the app. The client disposes it.</summary>
+    internal SurfaceClient(int port, string token, HttpMessageHandler handler)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
         ArgumentException.ThrowIfNullOrWhiteSpace(token);
+        ArgumentNullException.ThrowIfNull(handler);
 
-        // No proxy: a system proxy must never see the token, and loopback needs none.
-        http = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(3) })
+        http = new HttpClient(handler)
         {
             BaseAddress = new Uri($"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}/"),
             Timeout = RequestTimeout,

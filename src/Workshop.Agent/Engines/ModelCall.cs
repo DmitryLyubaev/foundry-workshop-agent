@@ -5,5 +5,5 @@ namespace Workshop.Agent.Engines;
 /// <param name="InputTokens">The input tokens the model reported, or 0 when it reported none.</param>
 /// <param name="OutputTokens">The output tokens the model reported, or 0 when it reported none.</param>
 /// <param name="Ms">How long the call took, in milliseconds, including any throttling waits.</param>
-/// <param name="FinishReason">Why the model stopped, such as <c>tool_calls</c>, <c>stop</c> or <c>content_filter</c>; null when it did not say.</param>
+/// <param name="FinishReason">Why the model stopped, such as <c>tool_calls</c>, <c>stop</c>, <c>length</c> or <c>content_filter</c>; null when it did not say.</param>
 public sealed record ModelCall(int Index, long InputTokens, long OutputTokens, double Ms, string? FinishReason);

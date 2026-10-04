@@ -7,7 +7,7 @@ namespace Workshop.Agent.Engines;
 
 /// <summary>
 /// Runs a task on Agent Framework's <see cref="ChatClientAgent"/>, with
-/// <see cref="AgentInstructions.Text"/> and the tools. Under the agent, each run builds:
+/// <see cref="AgentInstructions.Text"/>, <see cref="AgentSettings"/> and the tools. Under the agent, each run builds:
 /// <see cref="ToolLoopChatClient"/> (function invocation, with the study's rules) around
 /// <see cref="RecordingChatClient"/> around <see cref="ThrottleRetryChatClient"/> around the model.
 /// </summary>
@@ -68,7 +68,14 @@ public sealed class ChatClientEngine : IAgentEngine
         var loop = new ToolLoopChatClient(recording, budget, recorder);
         var agent = new ChatClientAgent(loop, new ChatClientAgentOptions
         {
-            ChatOptions = new ChatOptions { Instructions = AgentInstructions.Text, Tools = [.. tools] },
+            // The same instructions and settings for every engine: the study compares the models, nothing else.
+            ChatOptions = new ChatOptions
+            {
+                Instructions = AgentInstructions.Text,
+                Tools = [.. tools],
+                MaxOutputTokens = AgentSettings.MaxOutputTokens,
+                Temperature = AgentSettings.Temperature,
+            },
             // The loop above is the function invocation; the agent's default one would replace its rules.
             UseProvidedChatClientAsIs = true,
         });
@@ -80,8 +87,16 @@ public sealed class ChatClientEngine : IAgentEngine
             // WaitAsync is the backstop: a model client or a tool that ignores the token still ends at the limit.
             var response = await agent.RunAsync(task, cancellationToken: limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
             var calls = recording.Calls;
-            return calls.Count > 0 && calls[^1].FinishReason == ChatFinishReason.ContentFilter.Value
-                ? new EngineResult(EngineOutcome.ContentFiltered, null, calls)
+            var finish = calls.Count > 0 ? calls[^1].FinishReason : null;
+            if (finish == ChatFinishReason.ContentFilter.Value)
+            {
+                return new EngineResult(EngineOutcome.ContentFiltered, null, calls);
+            }
+
+            // The last answer stopped at the output-token limit: the loop ended because no tool call
+            // was whole, not because the model was done, so what it wrote is not its reply.
+            return finish == ChatFinishReason.Length.Value
+                ? new EngineResult(EngineOutcome.Truncated, null, calls)
                 : new EngineResult(EngineOutcome.Completed, LastAnswer(response), calls);
         }
         catch (ToolLimitReachedException)

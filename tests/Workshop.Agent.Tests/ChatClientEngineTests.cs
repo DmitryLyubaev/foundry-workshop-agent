@@ -159,6 +159,51 @@ public sealed class ChatClientEngineTests
     }
 
     [Fact]
+    public async Task Final_call_ending_length_is_truncated_not_completed()
+    {
+        // The model's last answer stops at the output-token limit: what it wrote is not a whole reply.
+        var engine = new ChatClientEngine("fake", "cut-short", new CutShortModel(), new ToolBudget(), FiveMinutes);
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal("truncated", EngineOutcome.Truncated);
+        Assert.Equal(EngineOutcome.Truncated, result.Outcome);
+        Assert.Null(result.FinalReply);
+        Assert.Null(result.Error);
+        Assert.Equal(["tool_calls", "length"], result.Calls.Select(c => c.FinishReason));
+    }
+
+    [Fact]
+    public async Task Every_engine_request_carries_AgentSettings()
+    {
+        Assert.Equal(4096, AgentSettings.MaxOutputTokens);
+        Assert.Null(AgentSettings.Temperature);
+        Assert.Equal("""{"maxOutputTokens":4096,"temperature":null}""", AgentSettings.CanonicalJson);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(AgentSettings.CanonicalJson))), AgentSettings.Sha256);
+
+        // Every engine is a ChatClientEngine over its model's client: each request it sends, a retried one too, carries the settings.
+        var model = new ScriptedChatClient(Script.Parse("""
+            [
+              { "call": "describe_screen", "args": {} },
+              { "throttle": 1 },
+              { "call": "open_screen", "args": { "screen": "parts" } },
+              { "reply": "Done." }
+            ]
+            """));
+        var engine = new ChatClientEngine("fake", "scripted", model, new ToolBudget(), FiveMinutes, TimeSpan.FromSeconds(60), Record([]));
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal(4, model.Requests.Count);
+        Assert.All(model.Requests, r =>
+        {
+            Assert.Equal(AgentSettings.MaxOutputTokens, r.Options?.MaxOutputTokens);
+            Assert.Equal(AgentSettings.Temperature, r.Options?.Temperature);
+        });
+    }
+
+    [Fact]
     public async Task Time_limit_is_time_limit()
     {
         var model = new ScriptedChatClient(Script.Parse("""
@@ -649,6 +694,26 @@ public sealed class ChatClientEngineTests
             Task.FromResult(Interlocked.Increment(ref calls) == 1
                 ? new ChatResponse(new ChatMessage(ChatRole.Assistant, [new TextContent("Let me look."), new FunctionCallContent("call-1", "describe_screen")]))
                 : new ChatResponse([new ChatMessage(ChatRole.Assistant, "Job J-1009 has P-04 on order."), new ChatMessage(ChatRole.Assistant, "No other job matches.")]));
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>A model that asks for one tool call, then stops its answer at the output-token limit.</summary>
+    private sealed class CutShortModel : IChatClient
+    {
+        private int calls;
+
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.Increment(ref calls) == 1
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call-1", "describe_screen")])) { FinishReason = ChatFinishReason.ToolCalls }
+                : new ChatResponse(new ChatMessage(ChatRole.Assistant, "There are 4 laptop bat")) { FinishReason = ChatFinishReason.Length });
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -156,6 +156,7 @@ public sealed class ScenarioRunnerTests
     [InlineData(EngineOutcome.ToolLimit, false)]
     [InlineData(EngineOutcome.TimeLimit, false)]
     [InlineData(EngineOutcome.ContentFiltered, false)]
+    [InlineData(EngineOutcome.Truncated, false)]
     [InlineData(EngineOutcome.Throttled, false)]
     [InlineData(EngineOutcome.EngineError, false)]
     [InlineData(EngineOutcome.ServiceError, false)]
@@ -220,6 +221,31 @@ public sealed class ScenarioRunnerTests
         Assert.True(Assert.Single(seen).App.HasExited);
         Assert.Contains("Check 1 (SELECT count(*) FROM jobs) gave '15', expected '16'.", transcript.Check.Failures);
         Assert.False(transcript.Success);
+    }
+
+    [Fact]
+    public async Task Backstop_firing_as_the_engine_finishes_still_writes_a_transcript()
+    {
+        using var output = TempRun.Create();
+        // Its task is the run's own: an engine finishing completes it, and the runner's continuations on it run there and then.
+        var finishing = new TaskCompletionSource<EngineResult>();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (_, _) => new BodyEngine(_ => finishing.Task),
+            ScenarioRunner.GateFor,
+            TimeSpan.FromMilliseconds(200),
+            TimeSpan.Zero,
+            // The race, forced: the backstop has fired, and the engine finishes before the runner tells it to stop.
+            () => Assert.True(finishing.TrySetResult(new EngineResult(EngineOutcome.Completed, "Done.", []))));
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel).WaitAsync(TimeSpan.FromSeconds(60), Cancel);
+
+        // The runner had already ended the run: the engine's late answer does not count.
+        Assert.Equal(EngineOutcome.TimeLimit, transcript.Outcome);
+        Assert.False(transcript.InfraError, transcript.InfraMessage);
+        Assert.False(transcript.Success);
+        Assert.Equal("The engine ran past its time limit of 0.2 s; the runner ended the run 0 s later.", transcript.Error);
+        Assert.True(File.Exists(Path.Combine(output.Directory, "s05.body.p1.json")));
     }
 
     [Fact]
@@ -341,7 +367,7 @@ public sealed class ScenarioRunnerTests
         using var json = JsonDocument.Parse(File.ReadAllBytes(file));
         var root = json.RootElement;
         Assert.Equal(
-            ["scenarioId", "pass", "engine", "model", "task", "instructionsSha256", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
+            ["scenarioId", "pass", "engine", "model", "task", "instructionsSha256", "settingsSha256", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
             root.EnumerateObject().Select(p => p.Name));
 
         Assert.Equal("s05", root.GetProperty("scenarioId").GetString());
@@ -351,6 +377,8 @@ public sealed class ScenarioRunnerTests
         Assert.Equal(ScenarioSet.Get("s05").Task, root.GetProperty("task").GetString());
         Assert.Equal(AgentInstructions.Sha256, root.GetProperty("instructionsSha256").GetString());
         Assert.Matches("^[0-9a-f]{64}$", AgentInstructions.Sha256);
+        Assert.Equal(AgentSettings.Sha256, root.GetProperty("settingsSha256").GetString());
+        Assert.Matches("^[0-9a-f]{64}$", AgentSettings.Sha256);
         Assert.Equal("completed", root.GetProperty("outcome").GetString());
         Assert.False(root.GetProperty("infraError").GetBoolean());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("infraMessage").ValueKind);

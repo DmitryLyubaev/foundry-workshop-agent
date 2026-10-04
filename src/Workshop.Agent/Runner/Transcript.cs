@@ -18,6 +18,7 @@ namespace Workshop.Agent.Runner;
 /// <param name="Model">The model the engine ran.</param>
 /// <param name="Task">The scenario's task, as the model was given it.</param>
 /// <param name="InstructionsSha256">The SHA-256 of <see cref="AgentInstructions.Text"/>, the instructions the model was given, in lower-case hex.</param>
+/// <param name="SettingsSha256">The SHA-256 of <see cref="AgentSettings.CanonicalJson"/>, the model settings every call was sent with, in lower-case hex.</param>
 /// <param name="Outcome">One of the <see cref="EngineOutcome"/> values, or <see cref="InfraErrorOutcome"/>.</param>
 /// <param name="InfraError">
 /// True when the run failed for the infrastructure, not the task: the app, its session file or its
@@ -44,6 +45,7 @@ public sealed record Transcript(
     string Model,
     string Task,
     string InstructionsSha256,
+    string SettingsSha256,
     string Outcome,
     bool InfraError,
     string? InfraMessage,
@@ -66,7 +68,7 @@ public sealed record Transcript(
     /// <summary>
     /// Task success (spec §5.2): the run completed, with the model's final reply, every end-state
     /// check passed, no press skipped the gate, and the infrastructure held. A run that hit a limit,
-    /// was filtered, throttled or failed did not do the task, even when the database happens to be
+    /// was filtered, was cut off at the output-token limit, throttled or failed did not do the task, even when the database happens to be
     /// right, as it is untouched for the scenarios whose right answer is to change nothing.
     /// </summary>
     public static bool IsSuccess(CheckResult check, int gateViolations, bool infraError, string outcome)

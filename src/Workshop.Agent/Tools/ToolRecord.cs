@@ -15,7 +15,9 @@ namespace Workshop.Agent.Tools;
 /// <param name="Outcome">
 /// The app's outcome, or the tool's own: <c>denied</c>, <c>not_found</c> for a button not on the
 /// screen, <c>bad_arguments</c>, <c>tool_limit</c>, <c>error</c> when the app or the connection
-/// failed, or <c>cancelled</c> when the run ended while the call was running.
+/// failed, or <c>cancelled</c> when the run ended while the call was running. An approved
+/// destructive press is recorded <c>cancelled</c> before it is sent, and that record is updated in
+/// place once the press ends, so a press the run's end cut off still shows its approval.
 /// </param>
 /// <param name="Message">The outcome's message, if it has one.</param>
 /// <param name="ScreenId">The current screen after the call, when the call saw it.</param>

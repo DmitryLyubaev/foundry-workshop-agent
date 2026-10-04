@@ -42,6 +42,7 @@ public sealed class ScenarioRunner
     private readonly Func<Scenario, IApprovalGate> gateFor;
     private readonly TimeSpan timeLimit;
     private readonly TimeSpan backstop;
+    private readonly Action? backstopFired;
     private readonly Lock ports = new();
     private int lastPort;
 
@@ -56,8 +57,12 @@ public sealed class ScenarioRunner
     {
     }
 
-    /// <summary>For tests: a time limit and a backstop shorter than the study's.</summary>
-    internal ScenarioRunner(string appExe, Func<Scenario, EngineRun, IAgentEngine> engineFor, Func<Scenario, IApprovalGate> gateFor, TimeSpan timeLimit, TimeSpan backstop)
+    /// <summary>
+    /// For tests: a time limit and a backstop shorter than the study's, and
+    /// <paramref name="backstopFired"/>, called as the backstop fires, before the engine is told to
+    /// stop: the moment in which an engine can still finish on its own.
+    /// </summary>
+    internal ScenarioRunner(string appExe, Func<Scenario, EngineRun, IAgentEngine> engineFor, Func<Scenario, IApprovalGate> gateFor, TimeSpan timeLimit, TimeSpan backstop, Action? backstopFired = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appExe);
         ArgumentNullException.ThrowIfNull(engineFor);
@@ -69,6 +74,7 @@ public sealed class ScenarioRunner
         this.gateFor = gateFor;
         this.timeLimit = timeLimit;
         this.backstop = backstop;
+        this.backstopFired = backstopFired;
     }
 
     /// <summary>
@@ -128,6 +134,7 @@ public sealed class ScenarioRunner
                 engine.Model,
                 s.Task,
                 AgentInstructions.Sha256,
+                AgentSettings.Sha256,
                 outcome,
                 infra,
                 infraMessage,
@@ -225,7 +232,17 @@ public sealed class ScenarioRunner
 
         // The caller's cancellation goes on as it is; only the clock is the backstop's.
         ct.ThrowIfCancellationRequested();
-        await abandon.CancelAsync().ConfigureAwait(false);
+        backstopFired?.Invoke();
+        try
+        {
+            await abandon.CancelAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The engine finished between the backstop firing and this: its continuation above has
+            // disposed the source, and there is nothing left to stop. The run still ended here.
+        }
+
         return new EngineResult(
             EngineOutcome.TimeLimit,
             null,

@@ -25,6 +25,12 @@ public static class EngineOutcome
     /// <summary>The model's answer was blocked by its content filter.</summary>
     public const string ContentFiltered = "content_filtered";
 
+    /// <summary>
+    /// The model's last answer stopped at the output-token limit (<see cref="AgentSettings.MaxOutputTokens"/>,
+    /// finish reason <c>length</c>): it gave no whole reply, so the run is not completed.
+    /// </summary>
+    public const string Truncated = "truncated";
+
     /// <summary>The model kept throttling past the wait budget.</summary>
     public const string Throttled = "throttled";
 
