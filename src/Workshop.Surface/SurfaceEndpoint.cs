@@ -10,15 +10,23 @@ using System.Text.Json;
 namespace Workshop.Surface;
 
 /// <summary>
-/// The agent surface's HTTP endpoint, the only way into the app from outside it. It listens on
-/// 127.0.0.1 only, and a request is served only if its Host is this endpoint, it carries this
+/// The agent surface's HTTP endpoint, the only way into the app from outside it. It serves loopback
+/// clients only, and a request is served only if its Host is this endpoint, it carries this
 /// launch's token, and its route, method and body are exactly what the route takes. Everything it
 /// does to the UI runs on the UI thread, one request at a time.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Routes: <c>GET /screens</c>, <c>GET /screen</c> and <c>POST /actions</c>. The token is written
 /// to the user-only <see cref="SessionFile"/> once the port is bound, and every action that reaches
 /// the executor is written to the <see cref="AuditLog"/>.
+/// </para>
+/// <para>
+/// It registers both <c>http://127.0.0.1:port/</c> and <c>http://localhost:port/</c>, so no other
+/// process can register the localhost name on this port and receive requests, token included, sent
+/// with <c>Host: localhost:port</c>. HTTP.sys accepts a localhost registration on every local
+/// address, so each request's remote address is also checked to be loopback.
+/// </para>
 /// </remarks>
 public sealed class SurfaceEndpoint : IDisposable
 {
@@ -45,9 +53,10 @@ public sealed class SurfaceEndpoint : IDisposable
     private readonly AuditLog audit;
     private readonly string[] allowedHosts;
 
-    // One UI request at a time. It is released when the UI work ends, not when its request gives up
-    // waiting, so an action that timed out is never overlapped by the next one. It is never disposed,
-    // because a timed-out action can still release it after the endpoint is.
+    // One UI request at a time. It is released when the UI work leaves the UI queue, having run or
+    // been skipped, never when its request gives up waiting: so an action still running after its
+    // 503 is never overlapped by the next one. It is never disposed, because a timed-out action can
+    // still release it after the endpoint is.
     private readonly SemaphoreSlim uiGate = new(1, 1);
 
     private readonly Lock lifecycle = new();
@@ -104,6 +113,7 @@ public sealed class SurfaceEndpoint : IDisposable
 
             var bound = new HttpListener { IgnoreWriteExceptions = true };
             bound.Prefixes.Add($"http://127.0.0.1:{port}/");
+            bound.Prefixes.Add($"http://localhost:{port}/");
             try
             {
                 bound.Start();
@@ -162,22 +172,34 @@ public sealed class SurfaceEndpoint : IDisposable
         }
     }
 
+    /// <summary>
+    /// Accepts requests until the listener is closed. A failure to accept while still listening is
+    /// traced and retried after a back-off, so the loop neither dies nor spins, and it serves again
+    /// as soon as the failure clears.
+    /// </summary>
     private async Task AcceptAsync(HttpListener bound, byte[] expectedToken)
     {
-        while (true)
+        var failures = 0;
+        while (bound.IsListening)
         {
             HttpListenerContext context;
             try
             {
                 context = await bound.GetContextAsync().ConfigureAwait(false);
+                failures = 0;
             }
-            catch (Exception e) when (e is HttpListenerException or ObjectDisposedException or InvalidOperationException)
+            catch (Exception e)
             {
                 if (!bound.IsListening)
                 {
                     return;
                 }
 
+                failures++;
+                var pause = AcceptBackOff(failures);
+                Trace.TraceWarning(
+                    $"The agent surface failed to accept a request ({failures} in a row); retrying in {pause.TotalMilliseconds} ms. {e.GetType().Name}: {e.Message}");
+                await Task.Delay(pause).ConfigureAwait(false);
                 continue;
             }
 
@@ -185,6 +207,10 @@ public sealed class SurfaceEndpoint : IDisposable
             _ = Task.Run(() => HandleAsync(context, expectedToken));
         }
     }
+
+    /// <summary>The pause after the given number of failures in a row: 50 ms, doubling, at most 2 seconds.</summary>
+    internal static TimeSpan AcceptBackOff(int failures) =>
+        TimeSpan.FromMilliseconds(Math.Min(2_000, 50 * Math.Pow(2, Math.Clamp(failures - 1, 0, 10))));
 
     private async Task HandleAsync(HttpListenerContext context, byte[] expectedToken)
     {
@@ -196,6 +222,11 @@ public sealed class SurfaceEndpoint : IDisposable
             response.StatusCode = reply.Status;
             response.ContentType = "application/json; charset=utf-8";
             response.ContentLength64 = reply.Body.Length;
+            response.AddHeader("Cache-Control", "no-store");
+            response.AddHeader("X-Content-Type-Options", "nosniff");
+
+            // An empty Server header stops HTTP.sys adding its own banner.
+            response.AddHeader("Server", "");
             if (reply.Allow is not null)
             {
                 response.AddHeader("Allow", reply.Allow);
@@ -221,9 +252,14 @@ public sealed class SurfaceEndpoint : IDisposable
         }
     }
 
-    /// <summary>The checks, in order: Host, token, route and method, body, then the UI.</summary>
+    /// <summary>The checks, in order: a loopback client, Host, token, route and method, body, then the UI.</summary>
     private async Task<Reply> RespondAsync(HttpListenerRequest request, byte[] expectedToken)
     {
+        if (request.RemoteEndPoint is not { } client || !IPAddress.IsLoopback(client.Address))
+        {
+            return Error(HttpStatusCode.Forbidden, "not_loopback");
+        }
+
         if (!IsAllowedHost(request.Headers["Host"]))
         {
             return Error(HttpStatusCode.Forbidden, "bad_host");
@@ -408,32 +444,24 @@ public sealed class SurfaceEndpoint : IDisposable
     /// <summary>
     /// Runs <paramref name="work"/> on the UI thread, after any earlier UI request has finished, and
     /// answers its result as JSON; or answers 503 if the whole wait passes <see cref="UiTimeout"/>.
-    /// A timed-out work item is not abandoned: it still runs, and still holds the gate until it ends.
+    /// Work that has not started by then never runs. Work already running on the UI thread is left
+    /// to finish, and holds the gate until it does.
     /// </summary>
     private async Task<Reply> OnUiAsync<T>(Func<T> work)
     {
         var waited = Stopwatch.StartNew();
 
+        // Timed out waiting for the gate: the work was never posted, so it never runs.
         if (!await uiGate.WaitAsync(UiTimeout).ConfigureAwait(false))
         {
             return Error(HttpStatusCode.ServiceUnavailable, "ui_timeout");
         }
 
-        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = new UiWork<T>(work);
         try
         {
             // BeginInvoke, Invoke's asynchronous form, so this thread can stop waiting at the timeout.
-            uiAnchor.BeginInvoke((MethodInvoker)(() =>
-            {
-                try
-                {
-                    done.SetResult(work());
-                }
-                catch (Exception e)
-                {
-                    done.SetException(e);
-                }
-            }));
+            uiAnchor.BeginInvoke((MethodInvoker)item.Run);
         }
         catch
         {
@@ -441,7 +469,7 @@ public sealed class SurfaceEndpoint : IDisposable
             throw;
         }
 
-        _ = done.Task.ContinueWith(
+        _ = item.Done.ContinueWith(
             finished =>
             {
                 // Observed here, because a request that timed out no longer awaits it.
@@ -453,16 +481,20 @@ public sealed class SurfaceEndpoint : IDisposable
             TaskScheduler.Default);
 
         var left = UiTimeout - waited.Elapsed;
-        T value;
-        try
+        using (var timer = new CancellationTokenSource())
         {
-            value = await done.Task.WaitAsync(left > TimeSpan.Zero ? left : TimeSpan.Zero).ConfigureAwait(false);
+            await Task.WhenAny(item.Done, Task.Delay(left > TimeSpan.Zero ? left : TimeSpan.Zero, timer.Token)).ConfigureAwait(false);
+            await timer.CancelAsync().ConfigureAwait(false);
         }
-        catch (TimeoutException) when (!done.Task.IsCompleted)
+
+        // Timed out. Abandoning fails only if the work has started; if it has also just finished,
+        // its result is served rather than a 503.
+        if (!item.Done.IsCompleted && (item.TryAbandon() || !item.Done.IsCompleted))
         {
             return Error(HttpStatusCode.ServiceUnavailable, "ui_timeout");
         }
 
+        var value = await item.Done.ConfigureAwait(false);
         return new Reply((int)HttpStatusCode.OK, JsonSerializer.SerializeToUtf8Bytes(value, SurfaceJson.Options));
     }
 
@@ -473,4 +505,42 @@ public sealed class SurfaceEndpoint : IDisposable
     private readonly record struct Reply(int Status, byte[] Body, string? Allow = null);
 
     private sealed record ScreenEntry(string Id, string Title);
+
+    /// <summary>
+    /// One piece of work posted to the UI thread. It runs only if its request has not given up on
+    /// it first; <see cref="Done"/> completes either way, with the result or cancelled.
+    /// </summary>
+    private sealed class UiWork<T>(Func<T> work)
+    {
+        private const int Pending = 0;
+        private const int Running = 1;
+        private const int Abandoned = 2;
+
+        private readonly TaskCompletionSource<T> done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int state = Pending;
+
+        public Task<T> Done => done.Task;
+
+        /// <summary>On the UI thread: does the work, unless it was abandoned while it waited in the queue.</summary>
+        public void Run()
+        {
+            if (Interlocked.CompareExchange(ref state, Running, Pending) != Pending)
+            {
+                done.SetCanceled();
+                return;
+            }
+
+            try
+            {
+                done.SetResult(work());
+            }
+            catch (Exception e)
+            {
+                done.SetException(e);
+            }
+        }
+
+        /// <summary>True if the work had not started, and now never will.</summary>
+        public bool TryAbandon() => Interlocked.CompareExchange(ref state, Abandoned, Pending) == Pending;
+    }
 }

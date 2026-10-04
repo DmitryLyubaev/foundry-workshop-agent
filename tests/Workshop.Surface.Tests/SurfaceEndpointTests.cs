@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -90,7 +91,73 @@ public sealed class SurfaceEndpointTests
         Assert.Equal(HttpStatusCode.OK, (await bench.SendAsync(HttpMethod.Get, "/screen")).StatusCode);
     }
 
+    [Fact]
+    public void Localhost_squatter_fails_the_start_and_cannot_register_later()
+    {
+        using var bench = Bench.Created();
+
+        using (var squatter = new HttpListener())
+        {
+            squatter.Prefixes.Add($"http://localhost:{bench.Port}/");
+            squatter.Start();
+
+            var refused = Assert.Throws<InvalidOperationException>(bench.Endpoint.Start);
+
+            Assert.Contains(bench.Port.ToString(CultureInfo.InvariantCulture), refused.Message, StringComparison.Ordinal);
+            Assert.False(File.Exists(bench.SessionPath));
+        }
+
+        // Once the port is free the endpoint starts, and then holds the localhost name too.
+        bench.Endpoint.Start();
+        using var late = new HttpListener();
+        late.Prefixes.Add($"http://localhost:{bench.Port}/");
+        Assert.Throws<HttpListenerException>(late.Start);
+    }
+
+    [Theory]
+    [InlineData(1, 50)]
+    [InlineData(2, 100)]
+    [InlineData(3, 200)]
+    [InlineData(6, 1_600)]
+    [InlineData(7, 2_000)]
+    [InlineData(1_000, 2_000)]
+    public void Accept_failures_back_off_from_50_ms_doubling_to_2_seconds(int failures, int milliseconds) =>
+        Assert.Equal(TimeSpan.FromMilliseconds(milliseconds), SurfaceEndpoint.AcceptBackOff(failures));
+
     // Requests that are refused
+
+    [Fact]
+    public async Task Request_from_a_non_loopback_address_is_403()
+    {
+        using var bench = Bench.Started();
+
+        // HTTP.sys answers a localhost registration on every local address, so a request can arrive
+        // on this machine's own network address; its remote address is then not loopback.
+        var addresses = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == OperationalStatus.Up)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+            .Select(a => a.Address)
+            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
+            .ToList();
+
+        foreach (var address in addresses)
+        {
+            HttpResponseMessage response;
+            try
+            {
+                response = await bench.SendAsync(bench.Request(HttpMethod.Get, "/screen", host: $"localhost:{bench.Port}", address: address.ToString()));
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !Cancel.IsCancellationRequested)
+            {
+                continue;
+            }
+
+            await AssertError(response, HttpStatusCode.Forbidden, "not_loopback");
+            return;
+        }
+
+        Assert.Skip("No local network address accepted a connection, so a non-loopback client cannot be simulated.");
+    }
 
     [Theory]
     [InlineData("missing")]
@@ -160,7 +227,7 @@ public sealed class SurfaceEndpointTests
 
             await AssertError(response, HttpStatusCode.MethodNotAllowed, "method_not_allowed");
             Assert.Equal([route == "/actions" ? "POST" : "GET"], response.Content.Headers.Allow);
-            AssertNoCorsHeaders(response);
+            AssertSafeHeaders(response);
         }
 
         (HttpMethod Method, string Route)[] wrongMethods =
@@ -176,12 +243,12 @@ public sealed class SurfaceEndpointTests
         {
             var response = await bench.SendAsync(method, route);
             await AssertError(response, HttpStatusCode.MethodNotAllowed, "method_not_allowed");
-            AssertNoCorsHeaders(response);
+            AssertSafeHeaders(response);
         }
 
         var head = await bench.SendAsync(HttpMethod.Head, "/screen");
         Assert.Equal(HttpStatusCode.MethodNotAllowed, head.StatusCode);
-        AssertNoCorsHeaders(head);
+        AssertSafeHeaders(head);
     }
 
     [Theory]
@@ -200,7 +267,7 @@ public sealed class SurfaceEndpointTests
         var response = await bench.SendAsync(new HttpMethod(method), route);
 
         await AssertError(response, HttpStatusCode.NotFound, "not_found");
-        AssertNoCorsHeaders(response);
+        AssertSafeHeaders(response);
     }
 
     [Theory]
@@ -283,9 +350,17 @@ public sealed class SurfaceEndpointTests
         Assert.Equal("""[{"id":"bench","title":"Bench"},{"id":"other","title":"Other"}]""", await screens.Content.ReadAsStringAsync(Cancel));
 
         var expected = JsonSerializer.Serialize(bench.Ui.Run(() => ScreenDescriber.Describe(bench.Navigator.Current)), SurfaceJson.Options);
-        foreach (var host in new[] { $"127.0.0.1:{bench.Port}", $"localhost:{bench.Port}", $"LocalHost:{bench.Port}" })
+        (string Address, string Host)[] targets =
+        [
+            ("127.0.0.1", $"127.0.0.1:{bench.Port}"),
+            ("127.0.0.1", $"localhost:{bench.Port}"),
+            ("127.0.0.1", $"LocalHost:{bench.Port}"),
+            ("[::1]", $"localhost:{bench.Port}"),
+        ];
+
+        foreach (var (address, host) in targets)
         {
-            var request = bench.Request(HttpMethod.Get, "/screen", host: host);
+            var request = bench.Request(HttpMethod.Get, "/screen", host: host, address: address);
             request.Headers.Add("Origin", "http://evil.example");
 
             var screen = await bench.SendAsync(request);
@@ -293,7 +368,7 @@ public sealed class SurfaceEndpointTests
             Assert.Equal(HttpStatusCode.OK, screen.StatusCode);
             Assert.Equal("application/json", screen.Content.Headers.ContentType?.MediaType);
             Assert.Equal(expected, await screen.Content.ReadAsStringAsync(Cancel));
-            AssertNoCorsHeaders(screen);
+            AssertSafeHeaders(screen);
         }
     }
 
@@ -426,18 +501,24 @@ public sealed class SurfaceEndpointTests
     {
         Assert.Equal(status, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        AssertSafeHeaders(response);
         Assert.Equal($$"""{"error":"{{error}}"}""", await response.Content.ReadAsStringAsync(Cancel));
     }
 
-    private static void AssertNoCorsHeaders(HttpResponseMessage response)
+    /// <summary>No CORS headers, no caching, no sniffing, and no Server banner.</summary>
+    private static void AssertSafeHeaders(HttpResponseMessage response)
     {
-        var names = response.Headers.Select(h => h.Key).Concat(response.Content.Headers.Select(h => h.Key));
+        var names = response.Headers.Select(h => h.Key).Concat(response.Content.Headers.Select(h => h.Key)).ToList();
         Assert.DoesNotContain(names, name => name.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Server", names, StringComparer.OrdinalIgnoreCase);
+        Assert.True(response.Headers.CacheControl?.NoStore, "Cache-Control: no-store is missing.");
+        Assert.Equal(["nosniff"], response.Headers.GetValues("X-Content-Type-Options"));
     }
 
     private static async Task<JsonElement> JsonOf(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafeHeaders(response);
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync(Cancel)).RootElement;
     }
 
@@ -449,12 +530,85 @@ public sealed class SurfaceEndpointTests
     private static string Padded(string json, int length) => json + new string(' ', length - Encoding.UTF8.GetByteCount(json));
 
     /// <summary>
+    /// The timeout rules beyond the brief's blocked-UI test. A class of their own, so these slow
+    /// tests run beside the others rather than after them.
+    /// </summary>
+    public sealed class Timeouts
+    {
+        private const string PumpingJson = """{"type":"press","button":"pumping"}""";
+
+        [Fact]
+        public async Task Lock_is_held_until_the_ui_work_ends_after_its_503()
+        {
+            using var bench = Bench.Started();
+            var clock = Stopwatch.StartNew();
+
+            await AssertError(await bench.PostAsync(PumpingJson), HttpStatusCode.ServiceUnavailable, "ui_timeout");
+            Assert.True(clock.Elapsed < BenchScreen.PumpFor, "The 503 came only after the handler ended.");
+
+            // The handler still runs, and lets the message loop run: a bump released into it now
+            // would run inside it. It must wait for the handler to end instead.
+            var bump = await bench.PostAsync(BumpJson);
+
+            Assert.Equal(Outcomes.Ok, (await JsonOf(bump)).GetProperty("outcome").GetString());
+            Assert.True(clock.Elapsed >= BenchScreen.PumpFor, "The bump was answered before the handler ended.");
+            Assert.Equal(1, bench.Bumps);
+            Assert.Equal(0, bench.BumpsWhilePumping);
+            Assert.Equal(["pumping", "bump"], bench.AuditLines().Select(l => l.GetProperty("target").GetString()));
+        }
+
+        [Fact]
+        public async Task Action_that_times_out_waiting_for_the_lock_never_runs()
+        {
+            using var bench = Bench.Started();
+
+            var pumping = bench.PostAsync(PumpingJson);
+            await bench.Navigator.Bench.PumpingStarted.WaitAsync(TimeSpan.FromSeconds(5), Cancel);
+
+            // The pumping handler holds the lock past this request's whole budget.
+            await AssertError(await bench.PostAsync(BumpJson), HttpStatusCode.ServiceUnavailable, "ui_timeout");
+            await AssertError(await pumping, HttpStatusCode.ServiceUnavailable, "ui_timeout");
+
+            // Once the handler has ended, the refused bump has still not run, and was not audited.
+            Assert.Equal(HttpStatusCode.OK, (await bench.SendAsync(HttpMethod.Get, "/screen")).StatusCode);
+            Assert.Equal(0, bench.Bumps);
+            Assert.Equal(["pumping"], bench.AuditLines().Select(l => l.GetProperty("target").GetString()));
+        }
+
+        [Fact]
+        public async Task Action_that_times_out_waiting_for_the_ui_thread_never_runs()
+        {
+            using var bench = Bench.Started();
+            var blockFor = TimeSpan.FromSeconds(11);
+            var clock = Stopwatch.StartNew();
+
+            // Blocked by something other than the endpoint, so the lock is free and the bump is
+            // queued on the UI thread behind the block.
+            var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bench.Navigator.Host.BeginInvoke(() =>
+            {
+                blocked.SetResult();
+                Thread.Sleep(blockFor);
+            });
+            await blocked.Task.WaitAsync(TimeSpan.FromSeconds(5), Cancel);
+
+            await AssertError(await bench.PostAsync(BumpJson), HttpStatusCode.ServiceUnavailable, "ui_timeout");
+
+            // The UI thread reaches the queued bump after the 503, and skips it.
+            Assert.Equal(HttpStatusCode.OK, (await bench.SendAsync(HttpMethod.Get, "/screen")).StatusCode);
+            Assert.True(clock.Elapsed >= blockFor);
+            Assert.Equal(0, bench.Bumps);
+            Assert.False(File.Exists(bench.AuditPath));
+        }
+    }
+
+    /// <summary>
     /// An endpoint on a free port with its own session directory and audit log, over a two-screen
     /// navigator on a live UI thread.
     /// </summary>
     private sealed class Bench : IDisposable
     {
-        private readonly HttpClient http = new(new SocketsHttpHandler { UseProxy = false });
+        private readonly HttpClient http = new(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(3) });
 
         private Bench()
         {
@@ -475,6 +629,7 @@ public sealed class SurfaceEndpointTests
         public string AuditPath => Path.Combine(Directory, "audit.jsonl");
         public string Token => SessionFile.Read(Directory).Token;
         public int Bumps => Ui.Run(() => Navigator.Bench.Bumps);
+        public int BumpsWhilePumping => Ui.Run(() => Navigator.Bench.BumpsWhilePumping);
 
         public static Bench Created() => new();
 
@@ -489,9 +644,9 @@ public sealed class SurfaceEndpointTests
             new(IPAddress.Loopback, Port, Directory, Navigator.Host, Navigator, new AuditLog(AuditPath));
 
         /// <summary>A request with the current token and the endpoint's own Host, unless told otherwise.</summary>
-        public HttpRequestMessage Request(HttpMethod method, string route, string? host = null, string? token = "current")
+        public HttpRequestMessage Request(HttpMethod method, string route, string? host = null, string? token = "current", string address = "127.0.0.1")
         {
-            var request = new HttpRequestMessage(method, new Uri($"http://127.0.0.1:{Port}{route}"));
+            var request = new HttpRequestMessage(method, new Uri($"http://{address}:{Port}{route}"));
             request.Headers.Host = host ?? $"127.0.0.1:{Port}";
 
             if (token is not null)
@@ -603,12 +758,42 @@ public sealed class SurfaceEndpointTests
             var slow = new Button { TabIndex = 2, Text = "Slow" }.Meta("slow", "Slow");
             slow.Click += (_, _) => Thread.Sleep(SlowFor);
 
-            Controls.AddRange([Note, bump, slow]);
+            var pumping = new Button { TabIndex = 3, Text = "Pumping" }.Meta("pumping", "Pumping");
+            pumping.Click += (_, _) => Pump();
+
+            Controls.AddRange([Note, bump, slow, pumping]);
         }
+
+        /// <summary>How long the pumping handler runs: past the endpoint's timeout, but not by a whole timeout.</summary>
+        public static TimeSpan PumpFor { get; } = TimeSpan.FromSeconds(12);
 
         public TextBox Note { get; }
 
         public int Bumps { get; private set; }
+
+        /// <summary>Bumps that ran inside the pumping handler, which only an unserialised action could.</summary>
+        public int BumpsWhilePumping { get; private set; }
+
+        /// <summary>Completes when the pumping handler starts; safe to wait on from any thread.</summary>
+        public Task PumpingStarted => pumpingStarted.Task;
+
+        private readonly TaskCompletionSource pumpingStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool pumpingNow;
+
+        /// <summary>Runs for <see cref="PumpFor"/>, letting the message loop run as a long handler might.</summary>
+        private void Pump()
+        {
+            pumpingNow = true;
+            pumpingStarted.TrySetResult();
+            var until = Stopwatch.GetTimestamp() + (long)(PumpFor.TotalSeconds * Stopwatch.Frequency);
+            while (Stopwatch.GetTimestamp() < until)
+            {
+                Application.DoEvents();
+                Thread.Sleep(10);
+            }
+
+            pumpingNow = false;
+        }
 
         /// <summary>
         /// Reads the count, lets the message loop run as a long handler might, then writes the
@@ -616,6 +801,11 @@ public sealed class SurfaceEndpointTests
         /// </summary>
         private void Bump()
         {
+            if (pumpingNow)
+            {
+                BumpsWhilePumping++;
+            }
+
             var seen = Bumps;
             var until = Stopwatch.GetTimestamp() + (Stopwatch.Frequency / 4);
             while (Stopwatch.GetTimestamp() < until)
