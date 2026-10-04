@@ -205,9 +205,11 @@ internal abstract class WorkshopScreen : UserControl
     }
 
     /// <summary>Replaces a list's rows, keeping the selected row selected if it is still there.</summary>
-    protected static void Fill(ListView list, IEnumerable<(string Key, string[] Cells)> rows)
+    protected static void Fill(ListView list, IEnumerable<(string Key, string[] Cells)> rows) => Fill(list, rows, SelectedKey(list));
+
+    /// <summary>Replaces a list's rows, with the row keyed <paramref name="selected"/> selected if it is there.</summary>
+    protected static void Fill(ListView list, IEnumerable<(string Key, string[] Cells)> rows, string? selected)
     {
-        var selected = SelectedKey(list);
         list.BeginUpdate();
         try
         {

@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using System.Net;
 using Workshop.Core;
@@ -7,12 +8,16 @@ namespace Workshop.App;
 
 internal static class Program
 {
-    /// <summary>The audit log's file name. It is kept beside the database, so each run's copy has its own.</summary>
+    /// <summary>
+    /// The audit log's file name. It is kept beside the database: a fresh database gets a run
+    /// directory of its own, and a runner that passes <c>--db</c> gives each run's copy its own.
+    /// </summary>
     public const string AuditFileName = "audit.jsonl";
 
     /// <summary>
-    /// Exit codes: 0 after a normal close, 1 when the app could not start (no database, or the
-    /// port is taken), 2 for a bad command line. The reason goes to standard error.
+    /// Exit codes: 0 after a normal close, 1 when the app could not start (the database is missing
+    /// or is not a workshop database, or the port is taken), 2 for a bad command line. The reason
+    /// goes to standard error.
     /// </summary>
     [STAThread]
     private static int Main(string[] args)
@@ -37,7 +42,9 @@ internal static class Program
         {
             launched = Launch(options);
         }
-        catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException)
+        // InvalidDataException and DbException: a --db that is not a workshop database, found by the
+        // table check or by the first query as the main form loads.
+        catch (Exception e) when (e is IOException or InvalidDataException or DbException or InvalidOperationException or UnauthorizedAccessException)
         {
             return Fail(1, e.Message);
         }
@@ -56,18 +63,23 @@ internal static class Program
     /// on it. Call on the thread that will run the form's message loop.
     /// </summary>
     /// <exception cref="FileNotFoundException"><c>--db</c> names a file that does not exist.</exception>
+    /// <exception cref="InvalidDataException"><c>--db</c> names a file that is not a workshop database.</exception>
+    /// <exception cref="DbException">The database has the workshop's tables, but a query on them fails.</exception>
     /// <exception cref="InvalidOperationException">The endpoint could not listen, as when another instance holds the port.</exception>
     internal static Launched Launch(AppOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         var created = options.DatabasePath is null;
-        var databasePath = Path.GetFullPath(options.DatabasePath ?? NewDatabasePath());
+        var databasePath = Path.GetFullPath(options.DatabasePath ?? NewDatabasePath(SessionFile.DefaultDirectory));
         var db = created ? WorkshopDb.CreateFresh(databasePath) : WorkshopDb.OpenExisting(databasePath);
 
-        var form = new MainForm(new JobService(db));
+        MainForm? form = null;
         try
         {
+            // The form's first screen queries the database, so a bad one fails here.
+            form = new MainForm(new JobService(db));
+
             // The endpoint invokes onto the UI thread through the form's handle, so it must exist first.
             _ = form.Handle;
             var audit = new AuditLog(Path.Combine(Path.GetDirectoryName(databasePath)!, AuditFileName));
@@ -77,22 +89,38 @@ internal static class Program
         }
         catch
         {
-            form.Dispose();
+            form?.Dispose();
             if (created)
             {
                 File.Delete(databasePath);
+                DeleteIfEmpty(Path.GetDirectoryName(databasePath)!);
             }
 
             throw;
         }
     }
 
-    /// <summary><c>%LOCALAPPDATA%\FoundryWorkshopAgent\workshop-&lt;timestamp&gt;.db</c>, its directory created.</summary>
-    private static string NewDatabasePath()
+    /// <summary>
+    /// <c>&lt;baseDirectory&gt;\runs\&lt;timestamp&gt;\workshop.db</c>, its run directory created, so
+    /// each run without <c>--db</c> keeps its database and its audit log apart from every other run's.
+    /// </summary>
+    internal static string NewDatabasePath(string baseDirectory)
     {
-        Directory.CreateDirectory(SessionFile.DefaultDirectory);
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
-        return Path.Combine(SessionFile.DefaultDirectory, $"workshop-{stamp}.db");
+        var run = Directory.CreateDirectory(Path.Combine(baseDirectory, "runs", stamp));
+        return Path.Combine(run.FullName, "workshop.db");
+    }
+
+    /// <summary>Removes a run directory left empty by a failed start; one that is not empty is kept, and the start's own error stands.</summary>
+    private static void DeleteIfEmpty(string directory)
+    {
+        try
+        {
+            Directory.Delete(directory);
+        }
+        catch (IOException)
+        {
+        }
     }
 
     /// <summary>A WinExe has no console of its own; standard error still reaches a caller that captures it.</summary>

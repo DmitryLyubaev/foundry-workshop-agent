@@ -6,8 +6,9 @@ namespace Workshop.App;
 
 /// <summary>
 /// The app's shell as the agent surface sees it. It owns the six screens, keeps them all in the
-/// host, and shows one at a time. A detail screen shows one record: the one selected in its list,
-/// or else the one opened last; with neither, opening it opens the list instead.
+/// host, and shows one at a time. A detail screen shows its current record: the record selected or
+/// opened most recently, where booking a job in opens the new job. With none, opening the detail
+/// screen opens its list instead. A list, when opened, shows the current record selected.
 /// </summary>
 internal sealed class WorkshopNavigator : IScreenNavigator
 {
@@ -16,8 +17,6 @@ internal sealed class WorkshopNavigator : IScreenNavigator
     private readonly CustomerListScreen customerList;
     private readonly CustomerDetailScreen customerDetail;
     private WorkshopScreen current;
-    private string? lastJobId;
-    private string? lastCustomerId;
 
     public WorkshopNavigator(Control host, JobService service)
     {
@@ -53,12 +52,18 @@ internal sealed class WorkshopNavigator : IScreenNavigator
 
     public WorkshopScreen CurrentScreen => current;
 
+    /// <summary>The job the job detail screen shows: the one selected or opened most recently.</summary>
+    public string? CurrentJobId { get; private set; }
+
+    /// <summary>The customer the customer detail screen shows: the one selected or opened most recently.</summary>
+    public string? CurrentCustomerId { get; private set; }
+
     public bool Open(string id)
     {
         switch (id)
         {
             case "job-detail":
-                if ((jobList.SelectedJobId ?? lastJobId) is { } jobId)
+                if (CurrentJobId is { } jobId)
                 {
                     OpenJob(jobId);
                 }
@@ -70,7 +75,7 @@ internal sealed class WorkshopNavigator : IScreenNavigator
                 return true;
 
             case "customer-detail":
-                if ((customerList.SelectedCustomerId ?? lastCustomerId) is { } customerId)
+                if (CurrentCustomerId is { } customerId)
                 {
                     OpenCustomer(customerId);
                 }
@@ -92,18 +97,24 @@ internal sealed class WorkshopNavigator : IScreenNavigator
         }
     }
 
-    /// <summary>Shows the job's detail screen. The ID must be a job's.</summary>
+    /// <summary>Makes the job current without showing it, as selecting its row does. The ID must be a job's.</summary>
+    public void NoteJob(string jobId) => CurrentJobId = jobId;
+
+    /// <summary>Makes the customer current without showing them, as selecting their row does. The ID must be a customer's.</summary>
+    public void NoteCustomer(string customerId) => CurrentCustomerId = customerId;
+
+    /// <summary>Makes the job current and shows its detail screen. The ID must be a job's.</summary>
     public void OpenJob(string jobId)
     {
-        lastJobId = jobId;
+        CurrentJobId = jobId;
         jobDetail.JobId = jobId;
         Show(jobDetail);
     }
 
-    /// <summary>Shows the customer's detail screen. The ID must be a customer's.</summary>
+    /// <summary>Makes the customer current and shows their detail screen. The ID must be a customer's.</summary>
     public void OpenCustomer(string customerId)
     {
-        lastCustomerId = customerId;
+        CurrentCustomerId = customerId;
         customerDetail.CustomerId = customerId;
         Show(customerDetail);
     }

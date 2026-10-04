@@ -193,15 +193,15 @@ public sealed class JobServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("J-1005", "ready")]
-    [InlineData("J-1001", "collected")]
-    [InlineData("J-1002", "cancelled")]
-    public void AddPart_refused_once_a_job_is_ready_or_closed(string jobId, string status)
+    [InlineData("J-1005", "The parts of a job that is ready cannot change. Set the status to in repair first.")]
+    [InlineData("J-1001", "The parts of a job that is collected cannot change.")]
+    [InlineData("J-1002", "The parts of a job that is cancelled cannot change.")]
+    public void AddPart_refused_once_a_job_is_ready_or_closed(string jobId, string message)
     {
         var result = _service.AddPart(jobId, "P-01", 1);
 
         Assert.False(result.Ok);
-        Assert.Equal($"The parts of a job that is {status} cannot change.", result.Message);
+        Assert.Equal(message, result.Message);
         Assert.Equal(4, Stock("P-01"));
     }
 

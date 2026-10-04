@@ -442,7 +442,11 @@ public sealed class SurfaceEndpoint : IDisposable
 
     private IReadOnlyList<ScreenEntry> ListScreens() => [.. navigator.Screens.Select(s => new ScreenEntry(s.Id, s.Title))];
 
-    /// <summary>Runs on the UI thread. The action is audited whatever happens once it reaches the executor.</summary>
+    /// <summary>
+    /// Runs on the UI thread. The action is audited whatever happens once it reaches the executor.
+    /// A log that cannot be written is traced, and the action's result still answered: the action
+    /// has already happened, and a 500 would invite the client to repeat it.
+    /// </summary>
     private ActionResult ExecuteAndAudit(SurfaceAction action)
     {
         var outcome = FailedOutcome;
@@ -454,7 +458,14 @@ public sealed class SurfaceEndpoint : IDisposable
         }
         finally
         {
-            audit.Append(action, outcome);
+            try
+            {
+                audit.Append(action, outcome);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Trace.TraceWarning($"The agent surface could not write the audit log {audit.Path}: {e.Message}");
+            }
         }
     }
 

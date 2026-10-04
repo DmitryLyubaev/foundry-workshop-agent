@@ -107,6 +107,14 @@ internal sealed class JobDetailScreen : WorkshopScreen
             return;
         }
 
+        // Cancelling is irreversible, so its only way in is the destructive Cancel job button, which
+        // the agent's gate asks a person to approve. The option stays, so a cancelled job shows it.
+        if (to == JobStatus.Cancelled)
+        {
+            Refuse("Use Cancel job to cancel a job.");
+            return;
+        }
+
         ApplyAndReload(Service.SetStatus(JobIdOrThrow, to));
     }
 

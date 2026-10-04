@@ -499,6 +499,21 @@ public sealed class SurfaceEndpointTests
     }
 
     [Fact]
+    public async Task An_audit_log_that_cannot_be_written_still_answers_the_action()
+    {
+        using var bench = Bench.Started();
+
+        // A directory where the log file should be: every append fails, as on a full disk.
+        System.IO.Directory.CreateDirectory(bench.AuditPath);
+
+        var press = await bench.PostAsync(BumpJson);
+
+        Assert.Equal(HttpStatusCode.OK, press.StatusCode);
+        Assert.Equal(Outcomes.Ok, (await JsonOf(press)).GetProperty("outcome").GetString());
+        Assert.Equal(1, bench.Bumps);
+    }
+
+    [Fact]
     public async Task Parallel_posts_are_serialised()
     {
         using var bench = Bench.Started();

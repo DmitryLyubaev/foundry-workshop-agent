@@ -19,17 +19,27 @@ internal sealed class CustomerListScreen : WorkshopScreen
         AddRow("Customers", customers);
         AddRow(null, openCustomer);
 
-        search.TextChanged += (_, _) => Reload();
+        search.TextChanged += (_, _) => Reload(SelectedCustomerId);
+
+        // As on the job list: only a row becoming selected makes its customer current.
+        customers.ItemSelectionChanged += (_, e) =>
+        {
+            if (e.IsSelected && e.Item is { } row)
+            {
+                Navigator.NoteCustomer(row.Name);
+            }
+        };
         OnPress(openCustomer, OpenSelected);
     }
 
     /// <summary>The customer whose row is selected, if any.</summary>
-    public string? SelectedCustomerId => SelectedKey(customers);
+    private string? SelectedCustomerId => SelectedKey(customers);
 
-    protected override void OnOpened() => Reload();
+    /// <summary>Shows the current customer selected, as the job list shows the current job.</summary>
+    protected override void OnOpened() => Reload(Navigator.CurrentCustomerId);
 
-    private void Reload() =>
-        Fill(customers, Service.Customers(search.Text).Select(c => (c.Id, new[] { c.Id, c.Name, c.Phone })));
+    private void Reload(string? selected) =>
+        Fill(customers, Service.Customers(search.Text).Select(c => (c.Id, new[] { c.Id, c.Name, c.Phone })), selected);
 
     private void OpenSelected()
     {

@@ -384,8 +384,11 @@ public sealed class JobService(WorkshopDb db)
 
     private static RuleResult QuantityBelowOne() => RuleResult.Fail("The quantity must be at least 1.");
 
+    // A ready job can reopen, so its refusal names the way back; a closed job's cannot.
     private static RuleResult PartsLocked(JobStatus status) =>
-        RuleResult.Fail($"The parts of a job that is {JobStatusNames.Name(status)} cannot change.");
+        RuleResult.Fail(status == JobStatus.Ready
+            ? $"The parts of a job that is {JobStatusNames.Name(status)} cannot change. Set the status to {JobStatusNames.Name(JobStatus.InRepair)} first."
+            : $"The parts of a job that is {JobStatusNames.Name(status)} cannot change.");
 
     // SQLite hands back INTEGER as long and timestamps and statuses as text, which Dapper cannot
     // bind to the records' constructors, so rows are read into these and converted.

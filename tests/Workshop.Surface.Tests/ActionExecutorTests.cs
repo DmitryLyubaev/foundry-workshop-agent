@@ -109,6 +109,27 @@ public sealed class ActionExecutorTests
     public void Set_checkbox_other_than_true_or_false_needs_true_or_false(string value) =>
         AssertRefused("urgent", value, "Urgent needs true or false.", "true");
 
+    [Theory]
+    [InlineData("Bo\nBo")]
+    [InlineData("Bo\r\nBo")]
+    [InlineData("Bo\rBo")]
+    public void Set_a_line_break_in_a_one_line_text_must_be_on_one_line(string value) =>
+        AssertRefused("name", value, "Name must be on one line.", "Ada");
+
+    [Fact]
+    public void Set_a_line_break_in_a_multiline_text_is_ok()
+    {
+        OnUi((navigator, executor) =>
+        {
+            navigator.Editor.CustomerName.Multiline = true;
+
+            var result = executor.Execute(Set("name", "Bo\r\nBo"));
+
+            Assert.Equal(Outcomes.Ok, result.Outcome);
+            Assert.Equal("Bo\r\nBo", navigator.Editor.CustomerName.Text);
+        });
+    }
+
     [Fact]
     public void Set_text_at_its_max_length_is_ok()
     {

@@ -61,6 +61,35 @@ public sealed class EndToEndTests
     }
 
     [Fact]
+    public async Task Saving_the_cancelled_status_is_validation_failed_so_only_cancel_job_cancels()
+    {
+        using var app = AppHost.Start();
+        var opened = await app.OpenJobAsync("J-1008");
+
+        // Still an option, so a cancelled job shows its status.
+        Assert.Contains("cancelled", Options(opened, "status"));
+        AssertOk(await app.SetAsync("status", "cancelled"));
+        var refused = await app.PressAsync("save-status");
+
+        Assert.Equal("validation_failed", refused.GetProperty("outcome").GetString());
+        Assert.Equal("Use Cancel job to cancel a job.", refused.GetProperty("message").GetString());
+        Assert.Equal("Use Cancel job to cancel a job.", app.OnUi(InlineMessage));
+        Assert.Equal(JobStatus.Diagnosing, app.Jobs.Job("J-1008")!.Status);
+    }
+
+    [Fact]
+    public async Task Cancel_job_cancels_the_job()
+    {
+        using var app = AppHost.Start();
+        await app.OpenJobAsync("J-1008");
+
+        var cancelled = AssertOk(await app.PressAsync("cancel-job"));
+
+        Assert.Equal(JobStatus.Cancelled, app.Jobs.Job("J-1008")!.Status);
+        Assert.Equal("cancelled", FieldValue(cancelled, "status"));
+    }
+
+    [Fact]
     public async Task Find_the_Henderson_printer_job_status()
     {
         using var app = AppHost.Start();
@@ -138,8 +167,10 @@ public sealed class EndToEndTests
         AssertOk(await app.SetAsync("part", "P-06 SSD 1 TB"));
         var refused = await app.PressAsync("add-part");
 
+        const string Locked = "The parts of a job that is ready cannot change. Set the status to in repair first.";
         Assert.Equal("validation_failed", refused.GetProperty("outcome").GetString());
-        Assert.Equal("The parts of a job that is ready cannot change.", refused.GetProperty("message").GetString());
+        Assert.Equal(Locked, refused.GetProperty("message").GetString());
+        Assert.Equal(Locked, app.OnUi(InlineMessage));
         Assert.Equal(partsBefore, app.Jobs.JobParts("J-1005").Count);
     }
 
@@ -182,6 +213,49 @@ public sealed class EndToEndTests
         Assert.Equal("job-detail", ScreenId(opened));
         Assert.StartsWith("J-1009: ", FieldValue(opened, "job"));
         Assert.Equal(["P-04#1"], Rows(opened, "parts").Select(r => r.GetProperty("key").GetString()));
+    }
+
+    [Fact]
+    public async Task Job_detail_shows_the_job_booked_in_last_not_an_older_selection()
+    {
+        using var app = AppHost.Start();
+        await app.OpenJobAsync("J-1008");
+
+        AssertOk(await app.OpenAsync("new-job"));
+        AssertOk(await app.SetAsync("customer", "C-001 Sam Rivera"));
+        AssertOk(await app.SetAsync("device", "D-001 Aster Book 14 (laptop)"));
+        AssertOk(await app.SetAsync("fault", "Fan is very loud"));
+        AssertOk(await app.PressAsync("book-in"));
+        var booked = Assert.Single(app.Jobs.Jobs(JobStatus.BookedIn, null), j => j.DeviceId == "D-001").Id;
+        AssertOk(await app.OpenAsync("parts"));
+
+        var back = AssertOk(await app.OpenAsync("job-detail"));
+
+        Assert.Equal("job-detail", ScreenId(back));
+        Assert.StartsWith($"{booked}: ", FieldValue(back, "job"));
+
+        // The list shows the current job selected, so selecting the older job again counts as a change.
+        var list = AssertOk(await app.OpenAsync("job-list"));
+        Assert.Equal([booked], SelectedKeys(list, "jobs"));
+        AssertOk(await app.SelectAsync("jobs", "J-1008"));
+        Assert.StartsWith("J-1008: ", FieldValue(AssertOk(await app.OpenAsync("job-detail")), "job"));
+    }
+
+    [Fact]
+    public async Task Customer_detail_shows_the_customer_selected_or_opened_last()
+    {
+        using var app = AppHost.Start();
+        AssertOk(await app.OpenAsync("customer-list"));
+        AssertOk(await app.SelectAsync("customers", "C-008"));
+        AssertOk(await app.PressAsync("open-customer"));
+        AssertOk(await app.OpenAsync("parts"));
+
+        Assert.Equal("Aiko Tanaka", FieldValue(AssertOk(await app.OpenAsync("customer-detail")), "name"));
+
+        var list = AssertOk(await app.OpenAsync("customer-list"));
+        Assert.Equal(["C-008"], SelectedKeys(list, "customers"));
+        AssertOk(await app.SelectAsync("customers", "C-002"));
+        Assert.Equal("Henderson Family", FieldValue(AssertOk(await app.OpenAsync("customer-detail")), "name"));
     }
 
     [Fact]
@@ -237,6 +311,9 @@ public sealed class EndToEndTests
                 .Single(l => l.GetProperty("id").GetString() == list)
                 .GetProperty("rows").EnumerateArray(),
         ];
+
+    private static string?[] SelectedKeys(JsonElement result, string list) =>
+        [.. Rows(result, list).Where(r => r.GetProperty("selected").GetBoolean()).Select(r => r.GetProperty("key").GetString())];
 
     private static string?[] Cells(JsonElement row) => [.. row.GetProperty("cells").EnumerateArray().Select(c => c.GetString())];
 }

@@ -79,6 +79,12 @@ public sealed class ActionExecutor(IScreenNavigator navigator)
 
     private static string? SetText(TextBox text, FieldDescription field, string value)
     {
+        // A person cannot type a line break into a one-line box, so the agent cannot set one either.
+        if (!text.Multiline && value.AsSpan().ContainsAny('\r', '\n'))
+        {
+            return $"{field.Label} must be on one line.";
+        }
+
         if (field.MaxLength is { } max && value.Length > max)
         {
             return $"{field.Label} can be at most {max} characters.";

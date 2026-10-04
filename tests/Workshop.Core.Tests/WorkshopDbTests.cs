@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.Sqlite;
 
 namespace Workshop.Core.Tests;
 
@@ -97,6 +98,44 @@ public sealed class WorkshopDbTests
 
         Assert.Contains(path, refused.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path));
+    }
+
+    [Theory]
+    [InlineData("text")]
+    [InlineData("empty")]
+    [InlineData("other tables")]
+    public void OpenExisting_refuses_a_file_that_is_not_a_workshop_database(string contents)
+    {
+        var path = TempDb.NewPath();
+        try
+        {
+            switch (contents)
+            {
+                case "text":
+                    File.WriteAllText(path, "not a database");
+                    break;
+                case "empty":
+                    // SQLite takes an empty file for an empty database, so this one opens and has no tables.
+                    File.WriteAllBytes(path, []);
+                    break;
+                default:
+                    using (var conn = new SqliteConnection($"Data Source={path};Pooling=False"))
+                    {
+                        conn.Open();
+                        conn.Execute("CREATE TABLE customers (id TEXT PRIMARY KEY); CREATE TABLE invoices (id TEXT PRIMARY KEY);");
+                    }
+
+                    break;
+            }
+
+            var refused = Assert.Throws<InvalidDataException>(() => WorkshopDb.OpenExisting(path));
+
+            Assert.Equal($"'{path}' is not a workshop database.", refused.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

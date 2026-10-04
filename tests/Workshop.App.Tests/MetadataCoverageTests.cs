@@ -204,6 +204,18 @@ public sealed class MetadataCoverageTests
         Assert.DoesNotContain(files, path => File.ReadAllText(path).Contains("MessageBox.", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Program_ends_on_an_unhandled_exception_rather_than_opening_a_dialog()
+    {
+        var program = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "Workshop.App", "Program.cs"));
+
+        var mode = program.IndexOf("Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);", StringComparison.Ordinal);
+        var initialize = program.IndexOf("ApplicationConfiguration.Initialize();", StringComparison.Ordinal);
+
+        Assert.True(mode >= 0, "Program.cs must set UnhandledExceptionMode.ThrowException, so no error dialog can open.");
+        Assert.True(initialize > mode, "The exception mode must be set before ApplicationConfiguration.Initialize(), while no window exists.");
+    }
+
     private const int DefaultMaxLength = 32767;
 
     /// <summary>

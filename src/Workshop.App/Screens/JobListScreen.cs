@@ -27,18 +27,32 @@ internal sealed class JobListScreen : WorkshopScreen
         AddRow("Jobs", jobs);
         AddRow(null, openJob, newJob);
 
-        search.TextChanged += (_, _) => Reload();
-        statusFilter.SelectedIndexChanged += (_, _) => Reload();
+        search.TextChanged += (_, _) => Reload(SelectedJobId);
+        statusFilter.SelectedIndexChanged += (_, _) => Reload(SelectedJobId);
+
+        // A row becoming selected makes its job current. Deselection never does: it comes with every
+        // change of row, and with every reload.
+        jobs.ItemSelectionChanged += (_, e) =>
+        {
+            if (e.IsSelected && e.Item is { } row)
+            {
+                Navigator.NoteJob(row.Name);
+            }
+        };
         OnPress(openJob, OpenSelected);
         OnPress(newJob, () => Navigator.Open("new-job"));
     }
 
     /// <summary>The job whose row is selected, if any.</summary>
-    public string? SelectedJobId => SelectedKey(jobs);
+    private string? SelectedJobId => SelectedKey(jobs);
 
-    protected override void OnOpened() => Reload();
+    /// <summary>
+    /// Shows the current job selected, not whichever row was selected before another job was
+    /// opened or booked in; so selecting any other row is a change, and makes that job current.
+    /// </summary>
+    protected override void OnOpened() => Reload(Navigator.CurrentJobId);
 
-    private void Reload()
+    private void Reload(string? selected)
     {
         var status = statusFilter.SelectedItem is string name ? JobStatusNames.Parse(name) : null;
         var devices = new Dictionary<string, Device>(StringComparer.Ordinal);
@@ -49,7 +63,7 @@ internal sealed class JobListScreen : WorkshopScreen
             var device = Lookup(devices, job.DeviceId, Service.Device);
             var customer = Lookup(customers, device.CustomerId, Service.Customer);
             return (job.Id, new[] { job.Id, customer.Name, DeviceText(device), JobStatusNames.Name(job.Status) });
-        }));
+        }), selected);
     }
 
     private void OpenSelected()

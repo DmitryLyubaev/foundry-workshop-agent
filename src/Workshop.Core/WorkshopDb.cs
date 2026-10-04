@@ -6,6 +6,9 @@ namespace Workshop.Core;
 /// <summary>A workshop database file. Every run starts from a fresh, seeded copy.</summary>
 public sealed class WorkshopDb
 {
+    /// <summary>The schema's tables. An empty file opens as an empty database, so the check counts them.</summary>
+    private static readonly string[] Tables = ["customers", "devices", "jobs", "parts", "job_parts", "notes"];
+
     private readonly string _connectionString;
 
     private WorkshopDb(string path)
@@ -46,8 +49,12 @@ public sealed class WorkshopDb
         }
     }
 
-    /// <summary>Opens a database file that already exists, such as a fresh copy a test runner made.</summary>
+    /// <summary>
+    /// Opens a database file that already exists, such as a fresh copy a test runner made, after
+    /// checking that it is a SQLite database with the workshop's tables. The file is only read.
+    /// </summary>
     /// <exception cref="FileNotFoundException">There is no file at <paramref name="path"/>.</exception>
+    /// <exception cref="InvalidDataException">The file is not a workshop database.</exception>
     public static WorkshopDb OpenExisting(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -59,8 +66,27 @@ public sealed class WorkshopDb
             throw new FileNotFoundException($"There is no workshop database at '{path}'.", path);
         }
 
-        return new WorkshopDb(path);
+        var db = new WorkshopDb(path);
+        try
+        {
+            using var conn = db.Open();
+            var tables = conn.ExecuteScalar<long>(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN @Tables", new { Tables });
+            if (tables == Tables.Length)
+            {
+                return db;
+            }
+        }
+        catch (SqliteException e)
+        {
+            throw NotAWorkshopDatabase(path, e);
+        }
+
+        throw NotAWorkshopDatabase(path, null);
     }
+
+    private static InvalidDataException NotAWorkshopDatabase(string path, Exception? inner) =>
+        new($"'{path}' is not a workshop database.", inner);
 
     public SqliteConnection Open()
     {
