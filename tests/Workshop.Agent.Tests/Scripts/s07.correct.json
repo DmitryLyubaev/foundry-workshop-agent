@@ -1,0 +1,9 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "search", "value": "Harbour Street Bakery"}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1010"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "set_field", "args": {"field": "note", "value": "Fan replaced, running a stress test."}},
+  {"call": "press_button", "args": {"button": "add-note"}},
+  {"reply": "Added the note to J-1010, the bakery's Tower M3 desktop."}
+]

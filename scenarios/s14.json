@@ -1,0 +1,42 @@
+{
+  "id": "s14",
+  "category": "recovery",
+  "task": "The phone screen for job J-1007 has arrived, one unit. Record it and get the job to ready.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT stock FROM parts WHERE id = 'P-02'",
+        "equals": "0"
+      },
+      {
+        "sql": "SELECT group_concat(part_id || ' ' || quantity || ' ' || state, ', ' ORDER BY rowid) FROM job_parts WHERE job_id = 'J-1007'",
+        "equals": "P-02 1 fitted"
+      },
+      {
+        "sql": "SELECT status FROM jobs WHERE id = 'J-1007'",
+        "equals": "ready"
+      },
+      {
+        "sql": "SELECT count(*) FROM job_parts",
+        "equals": "9"
+      },
+      {
+        "sql": "SELECT group_concat(id || ' ' || status, ', ' ORDER BY id) FROM jobs WHERE id NOT IN ('J-1007') AND id <= 'J-1015'",
+        "equals": "J-1001 collected, J-1002 cancelled, J-1003 collected, J-1004 collected, J-1005 ready, J-1006 in repair, J-1008 diagnosing, J-1009 waiting on parts, J-1010 in repair, J-1011 in repair, J-1012 ready, J-1013 booked in, J-1014 diagnosing, J-1015 booked in"
+      },
+      {
+        "sql": "SELECT group_concat(id || ' ' || stock, ', ' ORDER BY id) FROM parts WHERE id NOT IN ('P-02')",
+        "equals": "P-01 4, P-03 3, P-04 0, P-05 2, P-06 5, P-07 6, P-08 2, P-09 4, P-10 8"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [
+      "jobs",
+      "parts",
+      "job_parts"
+    ],
+    "replyContains": []
+  }
+}

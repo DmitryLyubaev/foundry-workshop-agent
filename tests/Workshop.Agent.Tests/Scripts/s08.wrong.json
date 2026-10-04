@@ -1,0 +1,6 @@
+[
+  {"call": "open_screen", "args": {"screen": "parts"}},
+  {"call": "select_row", "args": {"list": "parts", "row": "P-04"}},
+  {"call": "press_button", "args": {"button": "receive-stock"}},
+  {"reply": "Recorded the printheads in stock."}
+]

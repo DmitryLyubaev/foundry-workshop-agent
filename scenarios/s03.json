@@ -1,0 +1,15 @@
+{
+  "id": "s03",
+  "category": "lookup",
+  "task": "How many laptop batteries do we have in stock?",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": [
+      "4"
+    ]
+  }
+}

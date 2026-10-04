@@ -1,0 +1,24 @@
+{
+  "id": "s09",
+  "category": "update",
+  "task": "Add a phone for Aiko Tanaka: model Nimbus 9, serial NB9-1200.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT count(*) FROM devices",
+        "equals": "13"
+      },
+      {
+        "sql": "SELECT count(*) FROM devices WHERE customer_id = 'C-008' AND kind = 'phone' AND model = 'Nimbus 9' AND serial = 'NB9-1200'",
+        "equals": "1"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [
+      "devices"
+    ],
+    "replyContains": []
+  }
+}

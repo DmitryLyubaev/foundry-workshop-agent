@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.AI" />
+    <!-- The end-state checker reads the app's database after the app has closed. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.AI" />
   </ItemGroup>
 

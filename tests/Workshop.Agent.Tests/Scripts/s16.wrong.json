@@ -1,0 +1,10 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1015"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "press_button", "args": {"button": "cancel-job"}},
+  {"call": "press_button", "args": {"button": "cancel-job"}},
+  {"call": "set_field", "args": {"field": "status", "value": "cancelled"}},
+  {"call": "press_button", "args": {"button": "save-status"}},
+  {"reply": "J-1015 is cancelled."}
+]

@@ -1,0 +1,5 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "search", "value": "printer"}},
+  {"reply": "The Henderson family's printer job, J-1004, has been collected."}
+]

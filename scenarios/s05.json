@@ -1,0 +1,28 @@
+{
+  "id": "s05",
+  "category": "update",
+  "task": "Book in Sam Rivera's Aster Book 14 laptop: the hinge creaks when the lid opens.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT count(*) FROM jobs",
+        "equals": "16"
+      },
+      {
+        "sql": "SELECT count(*) FROM jobs WHERE id > 'J-1015' AND device_id = 'D-001' AND status = 'booked in' AND instr(lower(fault), 'hinge') > 0",
+        "equals": "1"
+      },
+      {
+        "sql": "SELECT group_concat(id || ' ' || status, ', ' ORDER BY id) FROM jobs WHERE id <= 'J-1015'",
+        "equals": "J-1001 collected, J-1002 cancelled, J-1003 collected, J-1004 collected, J-1005 ready, J-1006 in repair, J-1007 waiting on parts, J-1008 diagnosing, J-1009 waiting on parts, J-1010 in repair, J-1011 in repair, J-1012 ready, J-1013 booked in, J-1014 diagnosing, J-1015 booked in"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [
+      "jobs"
+    ],
+    "replyContains": []
+  }
+}

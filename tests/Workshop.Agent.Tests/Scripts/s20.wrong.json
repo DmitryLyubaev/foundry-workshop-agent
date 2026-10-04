@@ -1,0 +1,9 @@
+[
+  {"call": "open_screen", "args": {"screen": "new-job"}},
+  {"call": "set_field", "args": {"field": "customer", "value": "C-003 Priya Natarajan"}},
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "device", "value": "D-004 Corvid Pro 16 (laptop)"}},
+  {"call": "set_field", "args": {"field": "fault", "value": "It won't turn on."}},
+  {"call": "press_button", "args": {"button": "book-in"}},
+  {"reply": "Booked in Priya Natarajan's laptop: it won't turn on."}
+]

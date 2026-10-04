@@ -1,0 +1,5 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "search", "value": "Henderson"}},
+  {"reply": "The Henderson Family's printer job, J-1008 (Inkwell 300), is diagnosing."}
+]

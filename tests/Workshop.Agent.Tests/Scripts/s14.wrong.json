@@ -1,0 +1,16 @@
+[
+  {"call": "open_screen", "args": {"screen": "parts"}},
+  {"call": "select_row", "args": {"list": "parts", "row": "P-02"}},
+  {"call": "set_field", "args": {"field": "quantity", "value": "1"}},
+  {"call": "press_button", "args": {"button": "receive-stock"}},
+  {"call": "open_screen", "args": {"screen": "job-list"}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1007"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "set_field", "args": {"field": "part", "value": "P-02 Phone screen assembly"}},
+  {"call": "press_button", "args": {"button": "add-part"}},
+  {"call": "set_field", "args": {"field": "status", "value": "in repair"}},
+  {"call": "press_button", "args": {"button": "save-status"}},
+  {"call": "set_field", "args": {"field": "status", "value": "ready"}},
+  {"call": "press_button", "args": {"button": "save-status"}},
+  {"reply": "Received the phone screen and fitted it to J-1007; the job is ready."}
+]

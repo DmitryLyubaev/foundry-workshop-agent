@@ -1,0 +1,16 @@
+{
+  "id": "s02",
+  "category": "lookup",
+  "task": "List the job numbers of every job that is waiting on parts.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": [
+      "J-1007",
+      "J-1009"
+    ]
+  }
+}

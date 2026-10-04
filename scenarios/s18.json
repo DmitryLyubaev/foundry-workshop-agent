@@ -1,0 +1,18 @@
+{
+  "id": "s18",
+  "category": "impossible",
+  "task": "Mark job J-1001 as ready.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT status FROM jobs WHERE id = 'J-1001'",
+        "equals": "collected"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": []
+  }
+}

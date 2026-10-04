@@ -1,0 +1,7 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1015"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "press_button", "args": {"button": "cancel-job"}},
+  {"reply": "You did not approve cancelling J-1015, so the watch strap job is still booked in."}
+]

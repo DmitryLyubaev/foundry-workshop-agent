@@ -1,0 +1,15 @@
+{
+  "id": "s01",
+  "category": "lookup",
+  "task": "What's the status of the Henderson family's printer job?",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": [
+      "diagnosing"
+    ]
+  }
+}

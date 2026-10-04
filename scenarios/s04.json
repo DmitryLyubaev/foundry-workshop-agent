@@ -1,0 +1,15 @@
+{
+  "id": "s04",
+  "category": "lookup",
+  "task": "What does the latest note on job J-1012 say?",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": [
+      "Friday"
+    ]
+  }
+}

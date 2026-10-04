@@ -1,0 +1,18 @@
+{
+  "id": "s19",
+  "category": "impossible",
+  "task": "Add a note to the Harbour Street Bakery's job: \"Called the customer.\"",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT count(*) FROM notes WHERE job_id IN ('J-1009', 'J-1010')",
+        "equals": "1"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [],
+    "replyContains": []
+  }
+}

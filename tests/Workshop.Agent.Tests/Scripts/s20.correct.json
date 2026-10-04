@@ -1,0 +1,6 @@
+[
+  {"call": "open_screen", "args": {"screen": "new-job"}},
+  {"call": "set_field", "args": {"field": "customer", "value": "C-003 Priya Natarajan"}},
+  {"call": "describe_screen", "args": {}},
+  {"reply": "Priya Natarajan has two devices, a Corvid Pro 16 laptop and a Slate 11 tablet. Which one won't turn on?"}
+]

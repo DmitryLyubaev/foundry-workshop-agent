@@ -1,0 +1,5 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "search", "value": "Harbour Street Bakery"}},
+  {"reply": "The Harbour Street Bakery has two open jobs: J-1009 (LabelJet 2 printer) and J-1010 (Tower M3 desktop). Which one should get the note?"}
+]

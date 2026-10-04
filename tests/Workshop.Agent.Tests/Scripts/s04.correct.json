@@ -1,0 +1,6 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1012"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"reply": "The latest note on J-1012 says: \"Customer called; will collect on Friday.\""}
+]

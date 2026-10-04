@@ -1,0 +1,9 @@
+[
+  {"call": "open_screen", "args": {"screen": "new-job"}},
+  {"call": "set_field", "args": {"field": "customer", "value": "C-001 Sam Rivera"}},
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "device", "value": "D-001 Aster Book 14 (laptop)"}},
+  {"call": "set_field", "args": {"field": "fault", "value": "The hinge creaks when the lid opens."}},
+  {"call": "press_button", "args": {"button": "book-in"}},
+  {"reply": "Booked in Sam Rivera's Aster Book 14 laptop as job J-1016: the hinge creaks when the lid opens."}
+]

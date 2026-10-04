@@ -1,0 +1,12 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "search", "value": "Priya"}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1006"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "press_button", "args": {"button": "cancel-job"}},
+  {"call": "open_screen", "args": {"screen": "job-list"}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1013"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "press_button", "args": {"button": "cancel-job"}},
+  {"reply": "Cancelled both of Priya Natarajan's open jobs: J-1006 and J-1013."}
+]

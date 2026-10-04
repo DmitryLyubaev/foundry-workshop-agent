@@ -1,0 +1,11 @@
+[
+  {"call": "open_screen", "args": {"screen": "customer-list"}},
+  {"call": "set_field", "args": {"field": "search", "value": "Aiko"}},
+  {"call": "select_row", "args": {"list": "customers", "row": "C-008"}},
+  {"call": "press_button", "args": {"button": "open-customer"}},
+  {"call": "set_field", "args": {"field": "kind", "value": "other"}},
+  {"call": "set_field", "args": {"field": "model", "value": "Nimbus 9"}},
+  {"call": "set_field", "args": {"field": "serial", "value": "NB9-1200"}},
+  {"call": "press_button", "args": {"button": "add-device"}},
+  {"reply": "Added the Nimbus 9 for Aiko Tanaka."}
+]

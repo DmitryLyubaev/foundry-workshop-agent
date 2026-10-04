@@ -1,0 +1,5 @@
+[
+  {"call": "describe_screen", "args": {}},
+  {"call": "set_field", "args": {"field": "status-filter", "value": "waiting on parts"}},
+  {"reply": "Two jobs are waiting on parts: J-1007 and J-1009."}
+]

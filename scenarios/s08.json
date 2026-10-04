@@ -1,0 +1,24 @@
+{
+  "id": "s08",
+  "category": "update",
+  "task": "Three printheads arrived from the supplier. Record them in stock.",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT stock FROM parts WHERE id = 'P-04'",
+        "equals": "3"
+      },
+      {
+        "sql": "SELECT group_concat(id || ' ' || stock, ', ' ORDER BY id) FROM parts WHERE id NOT IN ('P-04')",
+        "equals": "P-01 4, P-02 0, P-03 3, P-05 2, P-06 5, P-07 6, P-08 2, P-09 4, P-10 8"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [
+      "parts"
+    ],
+    "replyContains": []
+  }
+}

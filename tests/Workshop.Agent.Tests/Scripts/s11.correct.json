@@ -1,0 +1,14 @@
+[
+  {"call": "open_screen", "args": {"screen": "parts"}},
+  {"call": "select_row", "args": {"list": "parts", "row": "P-04"}},
+  {"call": "set_field", "args": {"field": "quantity", "value": "2"}},
+  {"call": "press_button", "args": {"button": "receive-stock"}},
+  {"call": "open_screen", "args": {"screen": "job-list"}},
+  {"call": "set_field", "args": {"field": "search", "value": "Harbour Street Bakery"}},
+  {"call": "select_row", "args": {"list": "jobs", "row": "J-1009"}},
+  {"call": "press_button", "args": {"button": "open-job"}},
+  {"call": "press_button", "args": {"button": "fit-ordered-parts"}},
+  {"call": "set_field", "args": {"field": "status", "value": "in repair"}},
+  {"call": "press_button", "args": {"button": "save-status"}},
+  {"reply": "Received 2 printheads, fitted the one on order to J-1009, and put J-1009 back into repair. One printhead is left in stock."}
+]

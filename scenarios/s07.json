@@ -1,0 +1,28 @@
+{
+  "id": "s07",
+  "category": "update",
+  "task": "Add a note to the Harbour Street Bakery's desktop job: \"Fan replaced, running a stress test.\"",
+  "setup": [],
+  "gate": null,
+  "expect": {
+    "checks": [
+      {
+        "sql": "SELECT count(*) FROM notes WHERE job_id = 'J-1010'",
+        "equals": "1"
+      },
+      {
+        "sql": "SELECT count(*) FROM notes WHERE job_id = 'J-1010' AND instr(lower(text), 'stress test') > 0",
+        "equals": "1"
+      },
+      {
+        "sql": "SELECT count(*) FROM notes",
+        "equals": "8"
+      }
+    ],
+    "unchanged": true,
+    "unchangedExcept": [
+      "notes"
+    ],
+    "replyContains": []
+  }
+}

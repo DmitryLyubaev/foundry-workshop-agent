@@ -1,0 +1,5 @@
+[
+  {"call": "list_screens", "args": {}},
+  {"call": "open_screen", "args": {"screen": "parts"}},
+  {"reply": "We have 4 laptop batteries in stock (part P-01)."}
+]

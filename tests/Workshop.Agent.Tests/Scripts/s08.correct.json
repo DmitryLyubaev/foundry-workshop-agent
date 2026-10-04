@@ -1,0 +1,7 @@
+[
+  {"call": "open_screen", "args": {"screen": "parts"}},
+  {"call": "select_row", "args": {"list": "parts", "row": "P-04"}},
+  {"call": "set_field", "args": {"field": "quantity", "value": "3"}},
+  {"call": "press_button", "args": {"button": "receive-stock"}},
+  {"reply": "Received 3 printheads: P-04 now has 3 in stock."}
+]
