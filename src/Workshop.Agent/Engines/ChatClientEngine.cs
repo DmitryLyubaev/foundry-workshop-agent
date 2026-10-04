@@ -62,7 +62,8 @@ public sealed class ChatClientEngine : IAgentEngine
         ArgumentNullException.ThrowIfNull(tools);
 
         // Built per run: the throttling budget and the call records belong to one run.
-        var recording = new RecordingChatClient(new ThrottleRetryChatClient(inner, throttleBudget, delay), Model);
+        // The recorder hears of each answer before the loop runs the tool calls it asks for.
+        var recording = new RecordingChatClient(new ThrottleRetryChatClient(inner, throttleBudget, delay), Model, recorder is null ? null : recorder.ModelCallAnswered);
         // Not disposed: a delegating client disposes its inner one, and the model's client is the caller's.
         var loop = new ToolLoopChatClient(recording, budget, recorder);
         var agent = new ChatClientAgent(loop, new ChatClientAgentOptions

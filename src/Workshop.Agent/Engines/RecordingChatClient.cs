@@ -12,14 +12,22 @@ namespace Workshop.Agent.Engines;
 public sealed class RecordingChatClient : DelegatingChatClient
 {
     private readonly string model;
+    private readonly Action<int>? answered;
     private readonly Lock gate = new();
     private readonly List<ModelCall> calls = [];
 
-    public RecordingChatClient(IChatClient inner, string model)
+    /// <param name="inner">The client it records the calls of.</param>
+    /// <param name="model">The model's name, for the trace.</param>
+    /// <param name="answered">
+    /// Told each answered call's index before the answer goes on, so the tool calls it asks for can
+    /// name it; null when nothing needs to know.
+    /// </param>
+    public RecordingChatClient(IChatClient inner, string model, Action<int>? answered = null)
         : base(inner)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
         this.model = model;
+        this.answered = answered;
     }
 
     /// <summary>The answered calls so far, in order.</summary>
@@ -67,6 +75,7 @@ public sealed class RecordingChatClient : DelegatingChatClient
         span?.SetTag(AgentTelemetry.ModelInputTokens, call.InputTokens);
         span?.SetTag(AgentTelemetry.ModelOutputTokens, call.OutputTokens);
         span?.SetTag(AgentTelemetry.ModelFinishReason, call.FinishReason);
+        answered?.Invoke(call.Index);
         return response;
     }
 

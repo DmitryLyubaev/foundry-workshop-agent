@@ -34,6 +34,10 @@ public sealed class EngineRun : IToolCallRecorder
         (tools ?? throw new InvalidOperationException("The run's tools do not exist until its app is up; no engine runs before that."))
             .RecordUnknown(tool, arguments, outcome, message, ms);
 
+    public void ModelCallAnswered(int index) =>
+        (tools ?? throw new InvalidOperationException("The run's tools do not exist until its app is up; no engine runs before that."))
+            .ModelCallAnswered(index);
+
     internal void Bind(AppProcess app, WorkshopTools runTools)
     {
         App = app;

@@ -539,6 +539,11 @@ public sealed class ChatClientEngineTests
             recorded.Add((tool, arguments, outcome, message, ms));
             tools.Note($"{tool} {outcome}");
         }
+
+        public void ModelCallAnswered(int index)
+        {
+            // The engine's own tests follow the calls through the stub tools; the turn index is tested end to end.
+        }
     }
 
     /// <summary>A model that says "Let me look." beside its one tool call, then replies "Done.".</summary>

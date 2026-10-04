@@ -105,6 +105,52 @@ public sealed class ScenarioRunnerTests
     }
 
     [Fact]
+    public async Task Time_limit_during_a_tool_call_is_time_limit_not_infra_error()
+    {
+        using var output = TempRun.Create();
+        var seen = new List<SeenRun>();
+        // s16's correct script presses cancel-job; the gate is asked and never answers, so the run's
+        // time limit fires while that tool call is running.
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (s, run) => new SpyEngine(run, new ChatClientEngine("fake", "scripted", new ScriptedChatClient(ScenarioSet.ScriptFor(s.Id, "correct")), run.Budget, TimeSpan.FromSeconds(3), run), seen),
+            _ => new HangingGate());
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s16"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.TimeLimit, transcript.Outcome);
+        Assert.False(transcript.InfraError, transcript.InfraMessage);
+        Assert.Null(transcript.InfraMessage);
+        Assert.True(Assert.Single(seen).App.HasExited);
+        // The checks still ran: nothing was cancelled, so s16's end state holds.
+        Assert.True(transcript.Check.Passed, string.Join(" ", transcript.Check.Failures));
+        Assert.Equal(0, transcript.GateViolations);
+    }
+
+    [Fact]
+    public async Task Tool_records_name_the_model_call_that_issued_them()
+    {
+        using var output = TempRun.Create();
+        var script = Script.Parse("""
+            [
+              { "calls": [ { "call": "describe_screen", "args": {} }, { "call": "no_such_tool", "args": {} } ] },
+              { "call": "list_screens", "args": {} },
+              { "reply": "Done." }
+            ]
+            """);
+        var runner = new ScenarioRunner(AppProcess.FindAppExe(), (_, run) => FakeEngine.Create(script, run), ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s16"), 1, output.Directory, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, transcript.Outcome);
+        Assert.Equal(3, transcript.Calls.Count);
+        Assert.Equal(["describe_screen", "no_such_tool", "list_screens"], transcript.Tools.Select(t => t.Tool));
+        Assert.Equal(["ok", "bad_arguments", "ok"], transcript.Tools.Select(t => t.Outcome));
+        // The first model call asked for two calls at once, the unknown tool among them; the second for one.
+        Assert.Equal([1, 1, 2], transcript.Tools.Select(t => t.ModelCallIndex));
+    }
+
+    [Fact]
     public async Task Two_passes_share_no_state()
     {
         using var output = TempRun.Create();
@@ -220,8 +266,10 @@ public sealed class ScenarioRunnerTests
         var tools = root.GetProperty("tools").EnumerateArray().ToArray();
         Assert.Equal(6, tools.Length);
         Assert.Equal(
-            ["index", "tool", "arguments", "outcome", "message", "screenId", "ms", "approved"],
+            ["index", "modelCallIndex", "tool", "arguments", "outcome", "message", "screenId", "ms", "approved"],
             tools[0].EnumerateObject().Select(p => p.Name));
+        // One tool call per model call here: each names the model call that asked for it.
+        Assert.Equal(Enumerable.Range(1, 6), tools.Select(t => t.GetProperty("modelCallIndex").GetInt32()));
         Assert.Equal("open_screen", tools[0].GetProperty("tool").GetString());
         Assert.Equal("new-job", tools[0].GetProperty("arguments").GetProperty("screen").GetString());
         Assert.Equal("press_button", tools[^1].GetProperty("tool").GetString());

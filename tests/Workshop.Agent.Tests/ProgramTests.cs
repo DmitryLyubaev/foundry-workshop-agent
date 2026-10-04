@@ -8,15 +8,46 @@ public sealed class ProgramTests
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
     [Theory]
-    [InlineData("gpt")]
-    [InlineData("claude")]
-    public async Task Real_engines_arrive_in_plan_3(string engine)
+    [InlineData("gpt", true)]
+    [InlineData("claude", true)]
+    [InlineData("gpt", false)]
+    [InlineData("claude", false)]
+    public async Task Real_engines_arrive_in_plan_3(string engine, bool withScenarios)
     {
-        var (code, output, error) = await Run("run", "--engine", engine, "--scenarios", RepoPaths.Scenarios);
+        var (code, output, error) = withScenarios
+            ? await Run("run", "--engine", engine, "--scenarios", RepoPaths.Scenarios)
+            : await Run("run", "--engine", engine);
 
-        Assert.Equal(2, code);
+        Assert.Equal(1, code);
         Assert.Equal("", output);
         Assert.Equal($"The {engine} engine arrives in plan 3.", error.Trim());
+    }
+
+    [Fact]
+    public async Task Run_on_an_invalid_scenario_set_exits_1()
+    {
+        using var run = TempRun.Create();
+        File.WriteAllText(Path.Combine(run.Directory, "s01.json"), "{}");
+
+        var (code, output, error) = await Run("run", "--engine", "fake", "--scenarios", run.Directory, "--script-dir", RepoPaths.Scripts, "--out", run.Directory);
+
+        Assert.Equal(1, code);
+        Assert.Equal("", output);
+        Assert.StartsWith("The scenario file s01.json ", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Run_with_a_missing_app_exits_1()
+    {
+        using var run = TempRun.Create();
+        var missing = Path.Combine(run.Directory, "Workshop.App.exe");
+
+        var (code, output, error) = await Run("run", "--engine", "fake", "--scenarios", RepoPaths.Scenarios, "--only", "s05", "--script-dir", RepoPaths.Scripts, "--out", run.Directory, "--app", missing);
+
+        Assert.Equal(1, code);
+        Assert.Equal("", output);
+        Assert.Equal($"There is no app at '{missing}'.", error.Trim());
+        Assert.Empty(Directory.GetFiles(run.Directory));
     }
 
     [Fact]

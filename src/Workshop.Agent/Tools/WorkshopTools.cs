@@ -34,6 +34,9 @@ public sealed class WorkshopTools : IToolCallRecorder
     private readonly Lock recordsLock = new();
     private readonly List<ToolRecord> records = [];
 
+    // The model call whose answer asked for the calls now running; null until an engine reports one.
+    private int? modelCall;
+
     public WorkshopTools(SurfaceClient client, IApprovalGate gate, ToolBudget budget)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -80,7 +83,16 @@ public sealed class WorkshopTools : IToolCallRecorder
     {
         lock (recordsLock)
         {
-            records.Add(new ToolRecord(records.Count + 1, tool, arguments, outcome, message, null, ms, null));
+            records.Add(new ToolRecord(records.Count + 1, modelCall, tool, arguments, outcome, message, null, ms, null));
+        }
+    }
+
+    /// <summary>Notes the model call that the next tool calls belong to.</summary>
+    public void ModelCallAnswered(int index)
+    {
+        lock (recordsLock)
+        {
+            modelCall = index;
         }
     }
 
@@ -103,7 +115,7 @@ public sealed class WorkshopTools : IToolCallRecorder
             span?.SetTag(AgentTelemetry.ToolName, tool);
             var timer = Stopwatch.StartNew();
             var given = ToolArguments.Snapshot(arguments);
-            var call = new Call();
+            var call = new Call { ModelCallIndex = CurrentModelCall() };
 
             Result result;
             try
@@ -121,14 +133,14 @@ public sealed class WorkshopTools : IToolCallRecorder
             {
                 // The app or the connection failed: recorded and traced, then left to the engine and the runner.
                 // An approval already given stays on the record: a press that failed on the way may still have run.
-                Record(tool, given, new Result("", "error", e.Message, call.ScreenId, call.Approved), timer);
+                Record(tool, given, call, new Result("", "error", e.Message, call.ScreenId, call.Approved), timer);
                 span?.SetTag(AgentTelemetry.ToolOutcome, "error");
                 span?.SetTag(AgentTelemetry.ToolApproved, call.Approved);
                 span?.SetStatus(ActivityStatusCode.Error, e.Message);
                 throw;
             }
 
-            Record(tool, given, result, timer);
+            Record(tool, given, call, result, timer);
             span?.SetTag(AgentTelemetry.ToolOutcome, result.Outcome);
             span?.SetTag(AgentTelemetry.ToolApproved, result.Approved);
             return result.Json;
@@ -186,11 +198,19 @@ public sealed class WorkshopTools : IToolCallRecorder
         return await ActAsync(ActionRequest.Press(buttonId), ct).ConfigureAwait(false) with { Approved = call.Approved };
     }
 
-    private void Record(string tool, JsonElement arguments, Result result, Stopwatch timer)
+    private void Record(string tool, JsonElement arguments, Call call, Result result, Stopwatch timer)
     {
         lock (recordsLock)
         {
-            records.Add(new ToolRecord(records.Count + 1, tool, arguments, result.Outcome, result.Message, result.ScreenId, timer.Elapsed.TotalMilliseconds, result.Approved));
+            records.Add(new ToolRecord(records.Count + 1, call.ModelCallIndex, tool, arguments, result.Outcome, result.Message, result.ScreenId, timer.Elapsed.TotalMilliseconds, result.Approved));
+        }
+    }
+
+    private int? CurrentModelCall()
+    {
+        lock (recordsLock)
+        {
+            return modelCall;
         }
     }
 
@@ -212,6 +232,9 @@ public sealed class WorkshopTools : IToolCallRecorder
         public string? ScreenId { get; set; }
 
         public bool? Approved { get; set; }
+
+        /// <summary>Taken as the call starts: the model call that asked for it.</summary>
+        public int? ModelCallIndex { get; init; }
     }
 
     /// <summary>What a call did: the text the model sees, and what the record and the span keep.</summary>

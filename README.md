@@ -218,8 +218,8 @@ scenario's setup applied, on a fresh port; runs the engine, within 25 tool calls
 always closes the app (it also runs in a kill-on-close job, so it ends with the runner); then
 counts gate violations from the app's audit log and checks the end state on the database. It writes
 `<out>/<scenario>.<engine>.p<pass>.json`, a transcript with the model calls and their tokens, every
-tool call with its outcome and approval, the final reply, the checks, and `success`: every check
-passed and no destructive press skipped the gate. An app that cannot start, or an endpoint that
+tool call with its outcome, its approval and the model call that asked for it, the final reply, the
+checks, and `success`: every check passed and no destructive press skipped the gate. An app that cannot start, or an endpoint that
 fails, is an infrastructure error (`infraError`), never a task failure. `--engine gpt` and
 `--engine claude` arrive in plan 3.
 

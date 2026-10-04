@@ -7,8 +7,9 @@ namespace Workshop.Agent;
 
 /// <summary>
 /// The command line: <c>run</c> runs scenarios through the runner and writes their transcripts;
-/// <c>scenarios check</c> reads a scenario set and reports its first problem. Exit codes: 0 done,
-/// 1 a run met an infrastructure error or the set is invalid, 2 a bad command line.
+/// <c>scenarios check</c> reads a scenario set and reports its first problem. Exit codes: 0 done;
+/// 1 a run met an infrastructure error, the scenario set is invalid, the app is missing, or the
+/// engine (gpt, claude) is not built yet; 2 a bad command line.
 /// </summary>
 internal static class Program
 {
@@ -88,24 +89,28 @@ internal static class Program
 
     private static async Task<int> RunScenariosAsync(string[] args, TextWriter output, TextWriter error, CancellationToken ct)
     {
-        if (ReadOptions(args) is not { } options
-            || !options.TryGetValue("--engine", out var engineName)
-            || !options.TryGetValue("--scenarios", out var scenarioDir)
-            || !TryPasses(options, out var passes))
+        if (ReadOptions(args) is not { } options || !options.TryGetValue("--engine", out var engineName))
         {
             await error.WriteLineAsync(Usage).ConfigureAwait(false);
             return BadCommandLine;
         }
 
+        // Before the other options: whatever else is given, these engines cannot run yet.
         if (engineName is "gpt" or "claude")
         {
             await error.WriteLineAsync($"The {engineName} engine arrives in plan 3.").ConfigureAwait(false);
+            return Failed;
+        }
+
+        if (!options.TryGetValue("--scenarios", out var scenarioDir) || !TryPasses(options, out var passes) || engineName != FakeEngine.Name)
+        {
+            await error.WriteLineAsync(Usage).ConfigureAwait(false);
             return BadCommandLine;
         }
 
-        if (engineName != FakeEngine.Name || !options.TryGetValue("--script-dir", out var scriptDir))
+        if (!options.TryGetValue("--script-dir", out var scriptDir))
         {
-            await error.WriteLineAsync(engineName == FakeEngine.Name ? "The fake engine needs --script-dir." : Usage).ConfigureAwait(false);
+            await error.WriteLineAsync("The fake engine needs --script-dir.").ConfigureAwait(false);
             return BadCommandLine;
         }
 
@@ -119,7 +124,14 @@ internal static class Program
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             await error.WriteLineAsync(e.Message).ConfigureAwait(false);
-            return BadCommandLine;
+            return Failed;
+        }
+
+        // A missing app is the setup's fault, not a run's: no run starts, and no transcript is written.
+        if (!File.Exists(appExe))
+        {
+            await error.WriteLineAsync($"There is no app at '{appExe}'.").ConfigureAwait(false);
+            return Failed;
         }
 
         if (options.TryGetValue("--only", out var only))

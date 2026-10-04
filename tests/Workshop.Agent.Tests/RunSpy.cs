@@ -66,6 +66,16 @@ internal sealed class HangingModel : IChatClient
     }
 }
 
+/// <summary>An approval gate that never answers until it is cancelled: a person who never comes back.</summary>
+internal sealed class HangingGate : Tools.IApprovalGate
+{
+    public async Task<bool> ApproveAsync(string buttonId, string label, string screenId, CancellationToken ct)
+    {
+        await Task.Delay(Timeout.Infinite, ct);
+        throw new UnreachableException();
+    }
+}
+
 /// <summary>The committed scenarios and their scripts, read once.</summary>
 internal static class ScenarioSet
 {
