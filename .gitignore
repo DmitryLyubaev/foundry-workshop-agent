@@ -1,0 +1,14 @@
+# .NET build output
+bin/
+obj/
+*.user
+.vs/
+
+# Test output
+TestResults/
+
+# Local SQLite databases (every run creates a fresh copy)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
