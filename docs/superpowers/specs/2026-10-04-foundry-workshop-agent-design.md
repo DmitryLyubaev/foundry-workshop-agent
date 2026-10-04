@@ -1,6 +1,6 @@
 # Foundry workshop agent — design
 
-**Status: specification, awaiting the owner's approval (written 2026-10-04).** Nothing is built
+**Status: specification, approved by the owner on 2026-10-04.** Nothing is built
 or measured yet. Every figure below either comes from a named source on a stated date, or is
 labelled as an estimate. Claims that could not be checked are marked *unverified*, and §11 lists
 what to verify during implementation.
