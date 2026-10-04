@@ -11,6 +11,7 @@
     "replyContains": [
       "J-1007",
       "J-1009"
-    ]
+    ],
+    "replyMatches": []
   }
 }

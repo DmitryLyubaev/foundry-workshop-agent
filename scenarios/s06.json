@@ -23,6 +23,7 @@
     "unchangedExcept": [
       "jobs"
     ],
-    "replyContains": []
+    "replyContains": [],
+    "replyMatches": []
   }
 }

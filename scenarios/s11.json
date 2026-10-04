@@ -37,6 +37,7 @@
       "parts",
       "job_parts"
     ],
-    "replyContains": []
+    "replyContains": [],
+    "replyMatches": []
   }
 }

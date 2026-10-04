@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 
 namespace Workshop.Agent.Scenarios;
@@ -44,11 +45,20 @@ public static class EndStateChecker
             }
         }
 
+        var reply = finalReply is null ? null : ReplyText.Normalise(finalReply);
         foreach (var text in s.Expect.ReplyContains)
         {
-            if (finalReply is null || !finalReply.Contains(text, StringComparison.OrdinalIgnoreCase))
+            if (reply is null || !reply.Contains(ReplyText.Normalise(text), StringComparison.OrdinalIgnoreCase))
             {
                 failures.Add($"The reply does not contain '{text}'.");
+            }
+        }
+
+        foreach (var pattern in s.Expect.ReplyMatches)
+        {
+            if (MatchReply(reply, pattern) is { } problem)
+            {
+                failures.Add(problem);
             }
         }
 
@@ -81,7 +91,19 @@ public static class EndStateChecker
         {
             using var command = conn.CreateCommand();
             command.CommandText = check.Sql;
-            actual = Text(command.ExecuteScalar());
+            using var reader = command.ExecuteReader();
+
+            // One scalar: taking the first cell of a wider answer would hide a check that is wrong.
+            if (reader.FieldCount != 1)
+            {
+                return $"returns {reader.FieldCount} columns, not one scalar.";
+            }
+
+            actual = reader.Read() ? Text(reader.GetValue(0)) : Text(null);
+            if (reader.Read())
+            {
+                return "returns more than one row, not one scalar.";
+            }
         }
         catch (SqliteException e)
         {
@@ -89,6 +111,29 @@ public static class EndStateChecker
         }
 
         return actual == check.Expected ? null : $"gave '{actual}', expected '{check.Expected}'.";
+    }
+
+    private static string? MatchReply(string? reply, string pattern)
+    {
+        Regex regex;
+        try
+        {
+            regex = ReplyText.Pattern(pattern);
+        }
+        catch (ArgumentException e)
+        {
+            // The loader refuses these; a scenario built in code reaches here unchecked.
+            return $"The reply pattern '{pattern}' is not a valid regular expression: {e.Message}";
+        }
+
+        try
+        {
+            return reply is not null && regex.IsMatch(reply) ? null : $"The reply does not match '{pattern}'.";
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return $"The reply pattern '{pattern}' timed out after {ReplyText.MatchTimeout.TotalSeconds:0.#} s.";
+        }
     }
 
     private static string Text(object? value) => value switch
@@ -170,7 +215,8 @@ public static class EndStateChecker
 
     private static string Literal(string text) => "'" + text.Replace("'", "''", StringComparison.Ordinal) + "'";
 
-    private static SqliteConnection OpenReadOnly(string dbPath)
+    /// <summary>The only way this class opens a database: read-only, so no check can write.</summary>
+    internal static SqliteConnection OpenReadOnly(string dbPath)
     {
         if (!File.Exists(dbPath))
         {

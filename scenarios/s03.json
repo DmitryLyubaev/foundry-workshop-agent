@@ -8,8 +8,9 @@
     "checks": [],
     "unchanged": true,
     "unchangedExcept": [],
-    "replyContains": [
-      "4"
+    "replyContains": [],
+    "replyMatches": [
+      "\\b(4|four)\\b"
     ]
   }
 }

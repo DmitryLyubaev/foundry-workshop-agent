@@ -32,6 +32,7 @@
       "jobs",
       "notes"
     ],
-    "replyContains": []
+    "replyContains": [],
+    "replyMatches": []
   }
 }

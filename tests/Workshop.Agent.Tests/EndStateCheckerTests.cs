@@ -60,7 +60,7 @@ public sealed class EndStateCheckerTests
         using var run = TempRun.Create();
         var db = Fresh(run, "workshop.db");
         var before = EndStateChecker.Fingerprint(db);
-        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: [], UnchangedExcept: []));
+        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: [], UnchangedExcept: [], ReplyMatches: []));
 
         var untouched = EndStateChecker.Check(scenario, db, before, "Done.");
         Assert.True(untouched.Passed);
@@ -78,7 +78,7 @@ public sealed class EndStateCheckerTests
         using var run = TempRun.Create();
         var db = Fresh(run, "workshop.db");
         var before = EndStateChecker.Fingerprint(db);
-        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: [], UnchangedExcept: ["jobs", "notes"]));
+        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: [], UnchangedExcept: ["jobs", "notes"], ReplyMatches: []));
 
         Execute(db, "UPDATE jobs SET status = 'diagnosing' WHERE id = 'J-1013'");
         Execute(db, "INSERT INTO notes (job_id, at, text) VALUES ('J-1013', '2026-10-04T09:00:00+00:00', 'Started.')");
@@ -105,7 +105,7 @@ public sealed class EndStateCheckerTests
         using var run = TempRun.Create();
         var db = Fresh(run, "workshop.db");
         var before = EndStateChecker.Fingerprint(db);
-        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: ["diagnosing", "J-1008"], UnchangedExcept: []));
+        var scenario = With(new Expectation([], Unchanged: true, ReplyContains: ["diagnosing", "J-1008"], UnchangedExcept: [], ReplyMatches: []));
 
         Assert.True(EndStateChecker.Check(scenario, db, before, "The Henderson printer, job j-1008, is DIAGNOSING.").Passed);
 
@@ -115,6 +115,67 @@ public sealed class EndStateCheckerTests
 
         var none = EndStateChecker.Check(scenario, db, before, null);
         Assert.Equal(["The reply does not contain 'diagnosing'.", "The reply does not contain 'J-1008'."], none.Failures);
+    }
+
+    [Theory]
+    [InlineData("We have 4 laptop batteries in stock.", true)]
+    [InlineData("Four in stock.", true)]
+    [InlineData("There are four.", true)]
+    [InlineData("P-04 is out of stock.", false)]
+    [InlineData("J-1004 is collected.", false)]
+    [InlineData("We have 3 (checked 2026-10-04).", false)]
+    [InlineData("We have 14 laptop batteries.", false)]
+    [InlineData("Fourteen.", false)]
+    public void ReplyMatches_s03_takes_the_count_four_not_a_4_inside_an_id(string reply, bool passes)
+    {
+        Assert.Equal(passes, CheckReply("s03", reply).Passed);
+    }
+
+    [Theory]
+    [InlineData("It's being diagnosed.", true)]
+    [InlineData("J-1008 is DIAGNOSING.", true)]
+    [InlineData("It is under diagnosis.", true)]
+    [InlineData("J-1004 has been collected.", false)]
+    public void ReplyMatches_s01_takes_any_form_of_diagnosing(string reply, bool passes)
+    {
+        Assert.Equal(passes, CheckReply("s01", reply).Passed);
+    }
+
+    [Fact]
+    public void ReplyMatches_names_the_pattern_and_fails_a_timeout_or_no_reply()
+    {
+        using var run = TempRun.Create();
+        var db = Fresh(run, "workshop.db");
+        var before = EndStateChecker.Fingerprint(db);
+
+        Assert.Equal(["The reply does not match 'diagnos'."], CheckReply("s01", "In repair.").Failures);
+        Assert.Equal(["The reply does not match 'diagnos'."], CheckReply("s01", null).Failures);
+
+        // Catastrophic backtracking runs past the time limit, which is a failed check, not a hang.
+        var slow = With(new Expectation([], Unchanged: false, ReplyContains: [], UnchangedExcept: [], ReplyMatches: ["^(a+)+$"]));
+        var result = EndStateChecker.Check(slow, db, before, new string('a', 40) + "!");
+        Assert.False(result.Passed);
+        Assert.Equal(["The reply pattern '^(a+)+$' timed out after 1 s."], result.Failures);
+    }
+
+    [Fact]
+    public void Reply_checks_fold_unicode_dashes_and_spaces()
+    {
+        // GPT models often write IDs with a non-breaking hyphen, U+2011.
+        Assert.True(CheckReply("s02", "Two jobs: J\u20111007 and J\u20111009.").Passed);
+        Assert.True(CheckReply("s02", "J\u20101007, J\u20131009").Passed);
+        Assert.True(CheckReply("s02", "J\u22121007 and J\u20151009").Passed);
+        Assert.False(CheckReply("s02", "J 1007 and J 1009").Passed);
+
+        // The expected text is folded too, and so are non-breaking spaces.
+        using var run = TempRun.Create();
+        var db = Fresh(run, "workshop.db");
+        var before = EndStateChecker.Fingerprint(db);
+        var typographic = With(new Expectation([], Unchanged: false, ReplyContains: ["J\u20111008", "in\u00A0repair"], UnchangedExcept: [], ReplyMatches: ["P\u201301\u202Ffitted"]));
+        Assert.True(EndStateChecker.Check(typographic, db, before, "J-1008 is in repair, with P-01\u2007fitted.").Passed);
+
+        Assert.Equal("a-b-c-d-e-f-g h i j", ReplyText.Normalise("a\u2010b\u2011c\u2012d\u2013e\u2014f\u2015g\u00A0h\u202Fi\u2007j"));
+        Assert.Equal("x-y", ReplyText.Normalise("x\u2212y"));
     }
 
     [Fact]
@@ -134,7 +195,7 @@ public sealed class EndStateCheckerTests
             ],
             Unchanged: false,
             ReplyContains: [],
-            UnchangedExcept: []));
+            UnchangedExcept: [], ReplyMatches: []));
 
         var result = EndStateChecker.Check(scenario, db, before, null);
 
@@ -150,11 +211,57 @@ public sealed class EndStateCheckerTests
         using var run = TempRun.Create();
         var db = Fresh(run, "workshop.db");
         var before = EndStateChecker.Fingerprint(db);
-        var scenario = With(new Expectation([new Check("SELECT 1; DELETE FROM jobs", "1")], Unchanged: false, ReplyContains: [], UnchangedExcept: []));
+        var scenario = With(new Expectation([new Check("SELECT 1; DELETE FROM jobs", "1")], Unchanged: false, ReplyContains: [], UnchangedExcept: [], ReplyMatches: []));
 
         var result = EndStateChecker.Check(scenario, db, before, null);
 
         Assert.False(result.Passed);
+        Assert.Equal(before, EndStateChecker.Fingerprint(db));
+    }
+
+    [Fact]
+    public void Checks_refuse_more_than_one_row_or_column()
+    {
+        using var run = TempRun.Create();
+        var db = Fresh(run, "workshop.db");
+        var before = EndStateChecker.Fingerprint(db);
+        var scenario = With(new Expectation(
+            [
+                new Check("SELECT status FROM jobs WHERE id IN ('J-1008', 'J-1014')", "diagnosing"),
+                new Check("SELECT id, status FROM jobs WHERE id = 'J-1008'", "J-1008"),
+                new Check("SELECT status FROM jobs WHERE id = 'J-9999'", "NULL"),
+            ],
+            Unchanged: false,
+            ReplyContains: [],
+            UnchangedExcept: [],
+            ReplyMatches: []));
+
+        var result = EndStateChecker.Check(scenario, db, before, null);
+
+        // Both first cells equal the expected text, yet neither answer is one scalar; no row reads as NULL.
+        Assert.Equal(
+            [
+                "Check 1 (SELECT status FROM jobs WHERE id IN ('J-1008', 'J-1014')) returns more than one row, not one scalar.",
+                "Check 2 (SELECT id, status FROM jobs WHERE id = 'J-1008') returns 2 columns, not one scalar.",
+            ],
+            result.Failures);
+    }
+
+    [Fact]
+    public void The_checkers_connection_is_read_only()
+    {
+        using var run = TempRun.Create();
+        var db = Fresh(run, "workshop.db");
+        var before = EndStateChecker.Fingerprint(db);
+
+        using (var conn = EndStateChecker.OpenReadOnly(db))
+        {
+            using var command = conn.CreateCommand();
+            command.CommandText = "UPDATE parts SET stock = 99 WHERE id = 'P-01'";
+            var e = Assert.Throws<SqliteException>(() => command.ExecuteNonQuery());
+            Assert.Equal(8, e.SqliteErrorCode); // SQLITE_READONLY
+        }
+
         Assert.Equal(before, EndStateChecker.Fingerprint(db));
     }
 
@@ -170,8 +277,10 @@ public sealed class EndStateCheckerTests
                 Execute(db, setup);
             }
 
+            // The database's part only: the reply checks have their own tests.
+            var databaseOnly = scenario with { Expect = scenario.Expect with { ReplyContains = [], ReplyMatches = [] } };
             var before = EndStateChecker.Fingerprint(db);
-            var result = EndStateChecker.Check(scenario, db, before, string.Join(" ", scenario.Expect.ReplyContains));
+            var result = EndStateChecker.Check(databaseOnly, db, before, null);
 
             // No check is broken SQL, whatever the state.
             Assert.DoesNotContain(result.Failures, f => f.Contains(" failed: ", StringComparison.Ordinal));
@@ -183,6 +292,15 @@ public sealed class EndStateCheckerTests
     }
 
     private static Scenario With(Expectation expect) => new("s99", "update", "A task.", [], null, expect);
+
+    /// <summary>A committed scenario's check of <paramref name="reply"/> on an untouched seed, where its database part passes.</summary>
+    private static CheckResult CheckReply(string id, string? reply)
+    {
+        var scenario = ScenarioLoader.LoadAll(RepoPaths.Scenarios).Single(s => s.Id == id);
+        using var run = TempRun.Create();
+        var db = Fresh(run, "workshop.db");
+        return EndStateChecker.Check(scenario, db, EndStateChecker.Fingerprint(db), reply);
+    }
 
     private static string Fresh(TempRun run, string name)
     {

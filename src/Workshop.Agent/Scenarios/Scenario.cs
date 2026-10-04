@@ -20,7 +20,12 @@ public sealed record Scenario(string Id, string Category, string Task, string[] 
 /// With <paramref name="Unchanged"/>, the tables the fingerprint leaves out: those the task may
 /// change, so "nothing else changed" holds for the rest.
 /// </param>
-public sealed record Expectation(Check[] Checks, bool Unchanged, string[] ReplyContains, string[] UnchangedExcept);
+/// <param name="ReplyMatches">
+/// .NET regular expressions the final reply must match, each ignoring case, culture-invariant and
+/// with a time limit: for answers a bare substring would pass wrongly or fail rightly, such as a count.
+/// </param>
+/// <remarks>Both reply checks first fold Unicode dashes and spaces to ASCII, in the reply and the expected text alike.</remarks>
+public sealed record Expectation(Check[] Checks, bool Unchanged, string[] ReplyContains, string[] UnchangedExcept, string[] ReplyMatches);
 
 /// <summary>One SQL check: a single read-only <c>SELECT</c> returning one scalar, compared as invariant text.</summary>
 /// <remarks>

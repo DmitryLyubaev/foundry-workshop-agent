@@ -120,7 +120,25 @@ public static class ScenarioLoader
             throw Bad(file, "has an empty text in replyContains.");
         }
 
-        return new Expectation(checks, unchanged, reply, [.. except.Distinct(StringComparer.Ordinal)]);
+        var matches = expect.ReplyMatches ?? [];
+        foreach (var pattern in matches)
+        {
+            if (string.IsNullOrEmpty(pattern))
+            {
+                throw Bad(file, "has an empty pattern in replyMatches.");
+            }
+
+            try
+            {
+                _ = ReplyText.Pattern(pattern);
+            }
+            catch (ArgumentException e)
+            {
+                throw Bad(file, $"has the pattern '{pattern}' in replyMatches, which is not a valid regular expression: {e.Message}", e);
+            }
+        }
+
+        return new Expectation(checks, unchanged, reply, [.. except.Distinct(StringComparer.Ordinal)], matches);
     }
 
     private static InvalidDataException Bad(string file, string problem, Exception? inner = null) =>
@@ -149,6 +167,8 @@ public static class ScenarioLoader
         public bool? Unchanged { get; set; }
 
         public string[]? ReplyContains { get; set; }
+
+        public string[]? ReplyMatches { get; set; }
 
         public string[]? UnchangedExcept { get; set; }
     }

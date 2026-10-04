@@ -19,6 +19,7 @@
     "unchangedExcept": [
       "devices"
     ],
-    "replyContains": []
+    "replyContains": [],
+    "replyMatches": []
   }
 }

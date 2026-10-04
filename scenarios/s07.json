@@ -23,6 +23,7 @@
     "unchangedExcept": [
       "notes"
     ],
-    "replyContains": []
+    "replyContains": [],
+    "replyMatches": []
   }
 }

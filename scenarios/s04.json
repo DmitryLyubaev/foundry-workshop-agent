@@ -10,6 +10,7 @@
     "unchangedExcept": [],
     "replyContains": [
       "Friday"
-    ]
+    ],
+    "replyMatches": []
   }
 }

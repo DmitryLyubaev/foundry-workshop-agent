@@ -8,8 +8,9 @@
     "checks": [],
     "unchanged": true,
     "unchangedExcept": [],
-    "replyContains": [
-      "diagnosing"
+    "replyContains": [],
+    "replyMatches": [
+      "diagnos"
     ]
   }
 }

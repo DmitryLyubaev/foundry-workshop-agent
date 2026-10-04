@@ -49,7 +49,7 @@ public sealed class ScenarioLoaderTests
 
             // Every scenario decides something: a check, an unchanged database, or the reply.
             Assert.True(
-                scenario.Expect.Checks.Length > 0 || scenario.Expect.Unchanged || scenario.Expect.ReplyContains.Length > 0,
+                scenario.Expect.Checks.Length > 0 || scenario.Expect.Unchanged || scenario.Expect.ReplyContains.Length > 0 || scenario.Expect.ReplyMatches.Length > 0,
                 $"{scenario.Id} expects nothing.");
         }
 
@@ -58,8 +58,13 @@ public sealed class ScenarioLoaderTests
         {
             Assert.True(s.Expect.Unchanged);
             Assert.Empty(s.Expect.UnchangedExcept);
-            Assert.NotEmpty(s.Expect.ReplyContains);
+            Assert.NotEmpty(s.Expect.ReplyContains.Concat(s.Expect.ReplyMatches));
         });
+
+        // Only the two look-ups a bare substring decides wrongly use a pattern.
+        Assert.Equal(["diagnos"], scenarios.Single(s => s.Id == "s01").Expect.ReplyMatches);
+        Assert.Equal([@"\b(4|four)\b"], scenarios.Single(s => s.Id == "s03").Expect.ReplyMatches);
+        Assert.All(scenarios.Where(s => s.Id is not ("s01" or "s03")), s => Assert.Empty(s.Expect.ReplyMatches));
     }
 
     [Fact]
@@ -147,6 +152,8 @@ public sealed class ScenarioLoaderTests
     [InlineData("""{ "checks": [], "unchanged": false, "unchangedExcept": ["jobs"], "replyContains": [] }""", "unchangedExcept")]
     [InlineData("""{ "checks": [], "unchanged": true, "replyContains": [""] }""", "replyContains")]
     [InlineData("""{ "checks": [], "unchanged": true, "replyContains": [], "surprise": 1 }""", "surprise")]
+    [InlineData("""{ "checks": [], "unchanged": true, "replyMatches": ["(4|four"] }""", "replyMatches")]
+    [InlineData("""{ "checks": [], "unchanged": true, "replyMatches": [""] }""", "replyMatches")]
     public void Refuses_a_bad_expectation(string expect, string named)
     {
         using var dir = new ScenarioDir();
