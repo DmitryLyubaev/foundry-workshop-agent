@@ -22,10 +22,14 @@ namespace Workshop.Surface;
 /// the executor is written to the <see cref="AuditLog"/>.
 /// </para>
 /// <para>
-/// It registers both <c>http://127.0.0.1:port/</c> and <c>http://localhost:port/</c>, so no other
-/// process can register the localhost name on this port and receive requests, token included, sent
-/// with <c>Host: localhost:port</c>. HTTP.sys accepts a localhost registration on every local
-/// address, so each request's remote address is also checked to be loopback.
+/// HTTP.sys shares one URL namespace between processes and gives each request to the longest
+/// matching registration. So that no other process can take a route, and with it the token, the
+/// endpoint registers the root and every route's sub-path, <c>/screens/</c>, <c>/screen/</c> and
+/// <c>/actions/</c>, under both <c>127.0.0.1:port</c> and <c>localhost:port</c>: any other
+/// registration that would match a route then conflicts and fails. A registration deeper than a
+/// route (such as <c>/actions/x/</c>) still succeeds, but receives only paths the endpoint answers
+/// 404. HTTP.sys accepts a localhost registration on every local address, so each request's
+/// remote address is also checked to be loopback.
 /// </para>
 /// </remarks>
 public sealed class SurfaceEndpoint : IDisposable
@@ -112,8 +116,10 @@ public sealed class SurfaceEndpoint : IDisposable
             }
 
             var bound = new HttpListener { IgnoreWriteExceptions = true };
-            bound.Prefixes.Add($"http://127.0.0.1:{port}/");
-            bound.Prefixes.Add($"http://localhost:{port}/");
+            foreach (var prefix in PrefixesFor(port))
+            {
+                bound.Prefixes.Add(prefix);
+            }
             try
             {
                 bound.Start();
@@ -207,6 +213,17 @@ public sealed class SurfaceEndpoint : IDisposable
             _ = Task.Run(() => HandleAsync(context, expectedToken));
         }
     }
+
+    /// <summary>
+    /// The root and each route's sub-path, under both host names. Holding them all is what stops
+    /// another process registering a prefix that HTTP.sys would prefer for one of the routes.
+    /// </summary>
+    internal static IReadOnlyList<string> PrefixesFor(int port) =>
+        [
+            .. from host in new[] { "127.0.0.1", "localhost" }
+               from path in new[] { "/", "/screens/", "/screen/", "/actions/" }
+               select $"http://{host}:{port}{path}",
+        ];
 
     /// <summary>The pause after the given number of failures in a row: 50 ms, doubling, at most 2 seconds.</summary>
     internal static TimeSpan AcceptBackOff(int failures) =>

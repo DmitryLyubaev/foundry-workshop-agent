@@ -115,6 +115,73 @@ public sealed class SurfaceEndpointTests
     }
 
     [Theory]
+    [InlineData("127.0.0.1", "/actions/")]
+    [InlineData("127.0.0.1", "/screen/")]
+    [InlineData("127.0.0.1", "/screens/")]
+    [InlineData("localhost", "/actions/")]
+    [InlineData("localhost", "/screen/")]
+    [InlineData("localhost", "/screens/")]
+    public void Route_squatter_fails_the_start(string host, string path)
+    {
+        using var bench = Bench.Created();
+        using var squatter = new HttpListener();
+        squatter.Prefixes.Add($"http://{host}:{bench.Port}{path}");
+        squatter.Start();
+
+        var refused = Assert.Throws<InvalidOperationException>(bench.Endpoint.Start);
+
+        Assert.Contains(bench.Port.ToString(CultureInfo.InvariantCulture), refused.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(bench.SessionPath));
+    }
+
+    [Fact]
+    public void No_route_prefix_can_be_registered_while_started()
+    {
+        using var bench = Bench.Started();
+
+        foreach (var host in new[] { "127.0.0.1", "localhost", "LOCALHOST" })
+        {
+            foreach (var path in new[] { "/", "/screens/", "/screen/", "/actions/", "/Actions/" })
+            {
+                using var squatter = new HttpListener();
+                squatter.Prefixes.Add($"http://{host}:{bench.Port}{path}");
+
+                var refused = Assert.Throws<HttpListenerException>(squatter.Start);
+                Assert.Equal(183, refused.ErrorCode);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Routes_without_a_trailing_slash_are_served_under_both_hosts()
+    {
+        using var bench = Bench.Started();
+
+        (string Address, string Host)[] targets =
+        [
+            ("127.0.0.1", $"127.0.0.1:{bench.Port}"),
+            ("127.0.0.1", $"localhost:{bench.Port}"),
+            ("[::1]", $"localhost:{bench.Port}"),
+        ];
+
+        foreach (var (address, host) in targets)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await bench.SendAsync(bench.Request(HttpMethod.Get, "/screens", host, address: address))).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await bench.SendAsync(bench.Request(HttpMethod.Get, "/screen", host, address: address))).StatusCode);
+
+            var post = bench.Request(HttpMethod.Post, "/actions", host, address: address);
+            post.Content = new StringContent("""{"type":"set","field":"note","value":"hi"}""", Encoding.UTF8, "application/json");
+            Assert.Equal(Outcomes.Ok, (await JsonOf(await bench.SendAsync(post))).GetProperty("outcome").GetString());
+
+            // The registered sub-paths themselves are not routes.
+            foreach (var path in new[] { "/screens/", "/screen/", "/actions/", "/Actions" })
+            {
+                await AssertError(await bench.SendAsync(bench.Request(HttpMethod.Get, path, host, address: address)), HttpStatusCode.NotFound, "not_found");
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(1, 50)]
     [InlineData(2, 100)]
     [InlineData(3, 200)]
