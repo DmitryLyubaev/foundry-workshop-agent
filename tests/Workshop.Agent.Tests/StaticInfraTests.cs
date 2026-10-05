@@ -341,9 +341,20 @@ public sealed partial class StaticInfraTests
     /// <summary>A GUID made of one repeated digit, such as all zeros: a placeholder, not an identifier.</summary>
     private static bool IsPlaceholder(string guid) => guid.Replace("-", "", StringComparison.Ordinal).Distinct().Count() == 1;
 
-    private static IEnumerable<string> InfraFiles(string pattern) =>
-        Directory.EnumerateFiles(RepoPaths.Infra, pattern, SearchOption.AllDirectories)
-            .Where(f => !f.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Contains(".terraform"));
+    // Only the files git would publish: tracked ones, and new ones that aren't ignored. The owner's
+    // git-ignored values files and local state hold real identifiers by design, and must never be
+    // scanned into a test message.
+    private static IEnumerable<string> InfraFiles(string pattern)
+    {
+        var (code, output) = Git("ls-files", "--cached", "--others", "--exclude-standard", "--", "infra");
+        Assert.True(code == 0, "git ls-files failed under infra/.");
+        var publishable = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(f => Path.GetFullPath(Path.Combine(RepoPaths.RepoRoot, f)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Directory.EnumerateFiles(RepoPaths.Infra, pattern, SearchOption.AllDirectories)
+            .Where(f => !f.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Contains(".terraform"))
+            .Where(f => publishable.Contains(Path.GetFullPath(f)));
+    }
 
     private static string Relative(string file) => Path.GetRelativePath(RepoPaths.RepoRoot, file).Replace('\\', '/');
 

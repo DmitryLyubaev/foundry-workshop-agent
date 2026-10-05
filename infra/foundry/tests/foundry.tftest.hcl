@@ -224,7 +224,7 @@ run "monitoring" {
   }
 
   assert {
-    condition     = azapi_resource.appinsights_connection.body.properties.category == "AppInsights" && azapi_resource.appinsights_connection.body.properties.authType == "AAD" && azapi_resource.appinsights_connection.body.properties.target == azurerm_application_insights.foundry.id
+    condition     = azapi_resource.appinsights_connection.body.properties.category == "AppInsights" && azapi_resource.appinsights_connection.body.properties.authType == "ProjectManagedIdentity" && azapi_resource.appinsights_connection.body.properties.target == azurerm_application_insights.foundry.id
     error_message = "The connection must be category AppInsights, Entra-authenticated, targeting the stack's Application Insights."
   }
 

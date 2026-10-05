@@ -537,7 +537,7 @@ foundry README states. Read these values in the plan:
   three details in `modelProviderData`;
 - Log Analytics and Application Insights: `local_authentication_enabled = false`; Log Analytics
   `daily_quota_gb = 1`;
-- the connection: category `AppInsights`, `authType = "AAD"`;
+- the connection: category `AppInsights`, `authType = "ProjectManagedIdentity"`;
 - the roles: `53ca6127-db72-4b80-b1b0-d745d6d5456d` (Foundry User) or
   `3913510d-42f4-4e42-8a64-420c390055eb` (Monitoring Metrics Publisher), and no other;
 - tags: `project = "foundry-workshop-agent"` on every resource that takes tags;
@@ -785,16 +785,16 @@ union dependencies, requests
 
 **Expected:** `0`.
 
-### 5.4 The project's Application Insights connection (`authType` "AAD")
+### 5.4 The project's Application Insights connection (`authType` "ProjectManagedIdentity")
 
 In the Foundry portal, open the project `fwa-workshop`, then its tracing (observability) page.
 
 **Expected:** the page shows the connected Application Insights with no authentication or access
 error, and lists traces. Record what it shows.
 
-**If the connection fails to authenticate,** switch `authType` from `"AAD"` to `"ManagedIdentity"`
-in `infra/foundry/main.tf`. That is a PR, then a plan of 1 to change (or to replace), then an apply,
-under its own yes. Never switch to `ApiKey`: local authentication is off, and it would put a key in
+**The connection uses `ProjectManagedIdentity`.** On 2026-10-05 the first apply showed the service accepts only
+`ProjectManagedIdentity` or `ApiKey` for this category, refusing `AAD`. If it still fails to authenticate,
+the fix is the role below, not the auth type. Never switch to `ApiKey`: local authentication is off, and it would put a key in
 the connection.
 
 **If the page says the project cannot read Application Insights,** the project's identity needs
@@ -1457,7 +1457,7 @@ identifiers, yes or no.
 | Spans in Application Insights within 5 minutes; ingestion with Entra | 5.3 | |
 | The names of the `ProjectResponsesClient` spans | 5.3 | |
 | No message content in the traces | 5.3 | |
-| The connection's `authType` "AAD" works, or ManagedIdentity was needed | 5.4 | |
+| The connection's `authType` `ProjectManagedIdentity` works (the service refused `AAD` on 2026-10-05) | 5.4 | |
 | The project identity needs read access on Application Insights | 5.4 | |
 | No statsbeat traffic | 5.5 | |
 | The evaluators accept the item schema and mappings (azure-ai-projects 2.7.0) | 5.6 | |

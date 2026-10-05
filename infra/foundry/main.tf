@@ -164,10 +164,14 @@ resource "azapi_resource" "appinsights_connection" {
   name      = "appinsights"
   parent_id = azurerm_cognitive_account_project.workshop.id
 
+  # The service accepts only ProjectManagedIdentity or ApiKey for an AppInsights connection (it
+  # refused AAD on 2026-10-05), and azapi's embedded schema doesn't list ProjectManagedIdentity yet.
+  schema_validation_enabled = false
+
   body = {
     properties = {
       category      = "AppInsights"
-      authType      = "AAD"
+      authType      = "ProjectManagedIdentity"
       target        = azurerm_application_insights.foundry.id
       isSharedToAll = false
       metadata = {

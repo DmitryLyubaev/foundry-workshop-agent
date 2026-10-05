@@ -39,6 +39,7 @@ variable "ci_principal_id" {
 # The GPT deployment never upgrades on its own, so the study runs on one model version throughout.
 variable "gpt_model_version" {
   type        = string
+  default     = "2026-07-09"
   description = "The gpt-5.6-luna model version to pin, as the region's model list gives it, in YYYY-MM-DD form: az cognitiveservices model list --location eastus2 --query \"[?model.name=='gpt-5.6-luna'].model.version\"."
 
   validation {

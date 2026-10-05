@@ -20,7 +20,7 @@ placeholder.
 | Claude deployment | `claude-haiku-4-5` | `azapi_resource` `Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview`, format `Anthropic`, Global Standard, the same `capacity`, version pinned by `claude_model_version`, `versionUpgradeOption = "NoAutoUpgrade"`, `modelProviderData` from the variables, schema validation off |
 | Log Analytics | `log-fwa-<suffix>` | `PerGB2018`, 30 days, ingestion capped at 1 GB a day (`daily_quota_gb`); local authentication off |
 | Application Insights | `appi-fwa-<suffix>` | workspace-based; `local_authentication_enabled = false` |
-| Connection | `appinsights` | `azapi_resource` `Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01` on the project: category `AppInsights`, auth `AAD` (the project's managed identity), target the Application Insights resource |
+| Connection | `appinsights` | `azapi_resource` `Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01` on the project: category `AppInsights`, auth `ProjectManagedIdentity` (the project's managed identity; the service refuses `AAD` for this category, 2026-10-05), target the Application Insights resource |
 | Role assignments | see below | |
 
 `<suffix>` is six random lowercase letters and digits, new on each create. Every resource that
@@ -84,7 +84,7 @@ and the same for the others.
 | `subscription_id` | the subscription: `az account show --query id -o tsv` | none |
 | `owner_object_id` | the owner's object ID: `az ad signed-in-user show --query id -o tsv` | none |
 | `ci_principal_id` | `infra/bootstrap`'s output `ci_principal_id` | none |
-| `gpt_model_version` | the version to pin, `YYYY-MM-DD`: `az cognitiveservices model list --location eastus2 --query "[?model.name=='gpt-5.6-luna'].model.version"` | none |
+| `gpt_model_version` | the version to pin, `YYYY-MM-DD`: `az cognitiveservices model list --location eastus2 --query "[?model.name=='gpt-5.6-luna'].model.version"` | `2026-07-09` (read 2026-10-05) |
 | `claude_provider_organization` | the organisation name for Anthropic's Marketplace offer | none |
 | `claude_provider_country_code` | its two-letter country code, such as `AU` | none |
 | `claude_provider_industry` | its industry, in lowercase: `technology`, `finance`, `healthcare`, `education`, `retail`, `manufacturing`, `government`, `media` or `other` | none |
