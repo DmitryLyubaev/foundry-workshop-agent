@@ -247,27 +247,30 @@ internal static class Program
     /// before the first run (Review Focus 2); null after reporting why there is none: it drifted, or
     /// Foundry could not be reached.
     /// </summary>
-    private static async Task<AgentVersionRef?> EnsureAgentAsync(FoundryOptions foundry, Azure.Core.TokenCredential credential, TextWriter error, CancellationToken ct)
+    /// <remarks><paramref name="transport"/> is for tests: the project client's HTTP transport.</remarks>
+    internal static async Task<AgentVersionRef?> EnsureAgentAsync(FoundryOptions foundry, Azure.Core.TokenCredential credential, TextWriter error, CancellationToken ct, System.ClientModel.Primitives.PipelineTransport? transport = null)
     {
         try
         {
-            return await PromptAgentProvisioner.EnsureAsync(foundry, WorkshopTools.Declarations, credential, ct).ConfigureAwait(false);
+            return await PromptAgentProvisioner.EnsureAsync(foundry, WorkshopTools.Declarations, credential, transport, ct).ConfigureAwait(false);
         }
         catch (AgentDriftException e)
         {
-            await error.WriteLineAsync($"{e.Message} No run starts.").ConfigureAwait(false);
+            await error.WriteLineAsync($"{Redaction.Redact(e.Message)} No run starts.").ConfigureAwait(false);
             return null;
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
-            await error.WriteLineAsync($"The prompt agent could not be checked, so no run starts: {e.GetType().Name}: {e.Message}").ConfigureAwait(false);
+            await error.WriteLineAsync($"The prompt agent could not be checked, so no run starts: {Redaction.Describe(e, fullName: false)}").ConfigureAwait(false);
             return null;
         }
     }
 
-    private static string Line(Transcript t)
+    /// <summary>The console's line for one run; its infrastructure message is redacted again, whatever wrote it.</summary>
+    internal static string Line(Transcript t)
     {
-        var verdict = t.InfraError ? $"infrastructure error: {t.InfraMessage}"
+        ArgumentNullException.ThrowIfNull(t);
+        var verdict = t.InfraError ? $"infrastructure error: {Redaction.Redact(t.InfraMessage)}"
             : t.Success ? "success"
             : "failure";
         return string.Create(CultureInfo.InvariantCulture, $"{t.ScenarioId} p{t.Pass}: {verdict} ({t.Outcome}, {t.Tools.Count} tool calls, {t.GateViolations} gate violations, {t.Ms / 1000:0.0} s)");

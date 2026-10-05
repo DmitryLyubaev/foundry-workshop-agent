@@ -72,6 +72,25 @@ public sealed class AgentReferenceChatClientTests
         Assert.Equal("The loop's instructions are not the ones prompt agent 'fwa-workshop-agent' version 3 holds.", e.Message);
     }
 
+    [Theory]
+    [InlineData("instructions")]
+    [InlineData("tools")]
+    [InlineData("options")]
+    public async Task A_request_without_the_instructions_or_the_tools_is_refused(string missing)
+    {
+        using var client = new AgentReferenceChatClient(new CapturingClient(), Agent);
+        var options = missing switch
+        {
+            "instructions" => new ChatOptions { Tools = [.. WorkshopTools.Declarations] },
+            "tools" => new ChatOptions { Instructions = AgentInstructions.Text },
+            _ => null,
+        };
+
+        var e = await Assert.ThrowsAsync<AgentDriftException>(() => client.GetResponseAsync("Look.", options, Cancel));
+
+        Assert.Contains(missing == "tools" ? "tools" : "instructions", e.Message, StringComparison.Ordinal);
+    }
+
     private sealed class CapturingClient : IChatClient
     {
         public List<ChatOptions> Options { get; } = [];

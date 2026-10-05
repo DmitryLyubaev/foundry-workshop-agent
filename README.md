@@ -247,7 +247,9 @@ start, an endpoint that fails, or the model's service failing (network, credenti
 or 5xx answer: outcome `service_error`, with the model calls kept) is an infrastructure error
 (`infraError`), never a task failure. A 429 waits as the service asks, within the budget; a 400
 from the content filter ends the run `content_filtered`; any other 4xx is the model's own failure,
-`engine_error`, with the service's error code.
+`engine_error`, with the service's error code. A service's error text is redacted before it reaches
+a transcript, the console or a trace: GUIDs, URLs, Azure, Microsoft and Anthropic host names,
+resource and project paths, email addresses and tokens become placeholders such as `<guid>`.
 
 ## Security model
 

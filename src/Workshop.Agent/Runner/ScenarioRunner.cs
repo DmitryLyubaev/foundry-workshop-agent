@@ -176,8 +176,8 @@ public sealed class ScenarioRunner
         }
         catch (Exception e) when (!ct.IsCancellationRequested && IsInfrastructure(e))
         {
-            Activity.Current?.AddException(e);
-            infraMessage = $"{e.GetType().Name}: {e.Message}";
+            Redaction.AddException(Activity.Current, e);
+            infraMessage = Redaction.Describe(e, fullName: false);
         }
         finally
         {
@@ -313,7 +313,7 @@ public sealed class ScenarioRunner
         span.SetTag(AgentTelemetry.ScenarioInfraError, transcript.InfraError);
         if (transcript.InfraError)
         {
-            span.SetStatus(ActivityStatusCode.Error, transcript.InfraMessage);
+            span.SetStatus(ActivityStatusCode.Error, Redaction.Redact(transcript.InfraMessage));
         }
     }
 

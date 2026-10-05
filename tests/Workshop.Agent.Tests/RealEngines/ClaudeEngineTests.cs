@@ -56,7 +56,12 @@ public sealed class ClaudeEngineTests
 
         // Keyless: an Entra token for the Foundry scope, fetched once and reused, never a key.
         Assert.Equal(["https://ai.azure.com/.default"], credential.Scopes);
-        Assert.All(service.Requests, r => Assert.DoesNotContain("x-api-key", r.Body, StringComparison.OrdinalIgnoreCase));
+        Assert.All(service.Requests, r =>
+        {
+            Assert.False(r.Headers.ContainsKey("x-api-key"), "The request carries an x-api-key header.");
+            Assert.False(r.Headers.ContainsKey("api-key"), "The request carries an api-key header.");
+            Assert.True(r.Headers.ContainsKey("Authorization"));
+        });
 
         // The second request carries the whole conversation, with the tool's result for its call.
         var messages = service.Requests[1].Json.GetProperty("messages").EnumerateArray().ToArray();
@@ -94,6 +99,7 @@ public sealed class ClaudeEngineTests
     [InlineData("403")]
     [InlineData("500")]
     [InlineData("529")]
+    [InlineData("408")]
     [InlineData("network")]
     [InlineData("timeout")]
     public async Task Service_failures_are_infra_and_not_retried(string kind)
@@ -186,6 +192,7 @@ public sealed class ClaudeEngineTests
         "403" => () => FakeModelService.Json(403, Recorded.AnthropicError("permission_error", "The principal lacks the data action.")),
         "500" => () => FakeModelService.Json(500, Recorded.AnthropicError("api_error", "Internal server error.")),
         "529" => () => FakeModelService.Json(529, Recorded.AnthropicError("overloaded_error", "Overloaded.")),
+        "408" => () => FakeModelService.Json(408, Recorded.AnthropicError("timeout_error", "Request timed out.")),
         "network" => () => throw new HttpRequestException("No such host is known."),
         "timeout" => () => throw new TaskCanceledException("The request was canceled due to the configured timeout.", new TimeoutException("The operation timed out.")),
         "content policy" => () => FakeModelService.Json(400, Recorded.AnthropicError("invalid_request_error", "Output blocked by content filtering policy.")),

@@ -16,8 +16,8 @@ namespace Workshop.Agent.Engines.Foundry;
 /// keeps its own options, so it still sees, and runs, the tools.
 /// </summary>
 /// <remarks>
-/// It refuses (<see cref="AgentDriftException"/>) a request whose instructions or tools are not the
-/// ones the version was read back to hold: what the loop runs and what the model was told cannot
+/// It refuses (<see cref="AgentDriftException"/>) a request whose instructions or tools are missing,
+/// or are not the ones the version was read back to hold: what the loop runs and what the model was told cannot
 /// part. The Responses chat client of Microsoft.Extensions.AI.OpenAI sends its requests through the
 /// SDK's protocol method, past the project client's default agent, so the agent is named here, in
 /// the request it builds from (<see cref="ChatOptions.RawRepresentationFactory"/>).
@@ -48,15 +48,16 @@ internal sealed class AgentReferenceChatClient(IChatClient inner, AgentVersionRe
 
     private void Check(ChatOptions? options)
     {
-        if (options?.Instructions is { } instructions
-            && Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(instructions))) != agent.InstructionsSha256)
+        // A request without the instructions or the tools is not the loop's: it is refused, not waved through.
+        if (options?.Instructions is not { } instructions
+            || Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(instructions))) != agent.InstructionsSha256)
         {
             throw Drift("instructions");
         }
 
-        if (options?.Tools is not { } tools)
+        if (options.Tools is not { } tools)
         {
-            return;
+            throw Drift("tools");
         }
 
         lock (gate)

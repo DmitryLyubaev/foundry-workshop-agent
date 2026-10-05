@@ -24,13 +24,27 @@ public sealed record AgentVersionRef(string Name, string Version, string Instruc
 public sealed class AgentDriftException(string message) : Exception(message);
 
 /// <summary>
-/// Makes sure the GPT prompt agent has a version that holds exactly the code's definition: the GPT
-/// deployment, <see cref="AgentInstructions.Text"/>, the tools' schemas (<see cref="ToolSchemas"/>)
-/// and no temperature (<see cref="AgentSettings.Temperature"/>, the model's default). The output-token
-/// limit is not part of a prompt agent's definition; it travels with each request.
+/// Makes sure the GPT prompt agent has a version that holds exactly the code's definition, and
+/// nothing more: a prompt agent on the GPT deployment, with <see cref="AgentInstructions.Text"/> and
+/// the tools' schemas (<see cref="ToolSchemas"/>), and every other field of the definition at its
+/// default: no temperature or top_p (<see cref="AgentSettings.Temperature"/>, the model's default),
+/// no reasoning or text options, no tool choice but <c>auto</c>, no structured inputs and no
+/// content-filter configuration (<c>rai_config</c>). The output-token limit is not part of a prompt
+/// agent's definition; it travels with each request.
 /// </summary>
+/// <remarks>
+/// The definition is compared as the service sent it, in its raw JSON, rather than through the SDK's
+/// model, which drops fields it does not know: a field the service adds later, set in the portal,
+/// is a difference too unless it is at its default (null, empty, or an object of defaults).
+/// </remarks>
 public static class PromptAgentProvisioner
 {
+    // The fields the code sets, compared on their own; any other must be at its default.
+    private static readonly string[] Compared = ["kind", "model", "instructions", "tools"];
+
+    // The fields of a function tool the code sets; strict is null by choice (to be confirmed live).
+    private static readonly string[] ToolFields = ["type", "name", "description", "parameters", "strict"];
+
     /// <summary>
     /// Reuses the agent's latest version when it holds the code's definition, and creates a new
     /// version otherwise (or the agent's first). Either way it reads the version back, and throws
@@ -50,19 +64,19 @@ public static class PromptAgentProvisioner
         var admin = GptEngineFactory.ProjectClient(options, credential, transport).AgentAdministrationClient;
 
         var latest = await LatestAsync(admin, options.AgentName, ct).ConfigureAwait(false);
-        var chosen = latest is not null && Difference(latest, options, toolsSha256) is null
-            ? latest
-            : (await admin.CreateAgentVersionAsync(options.AgentName, new ProjectsAgentVersionCreationOptions(Definition(options, tools)), foundryFeatures: null, ct).ConfigureAwait(false)).Value;
+        var version = latest is { } found && Difference(found, options, toolsSha256) is null
+            ? Text(found, "version")!
+            : (await admin.CreateAgentVersionAsync(options.AgentName, new ProjectsAgentVersionCreationOptions(Definition(options, tools)), foundryFeatures: null, ct).ConfigureAwait(false)).Value.Version;
 
         // Read back what the service now holds, whether reused or new: that is what a run will use.
-        var readBack = (await admin.GetAgentVersionAsync(options.AgentName, chosen.Version, ct).ConfigureAwait(false)).Value;
+        var readBack = Raw(await admin.GetAgentVersionAsync(options.AgentName, version, ct).ConfigureAwait(false));
         if (Difference(readBack, options, toolsSha256) is { } difference)
         {
-            throw new AgentDriftException($"The prompt agent '{options.AgentName}' version {readBack.Version} does not hold the code's {difference}.");
+            throw new AgentDriftException($"The prompt agent '{options.AgentName}' version {version} does not hold the code's {difference}.");
         }
 
-        var definition = (DeclarativeAgentDefinition)readBack.Definition;
-        return new AgentVersionRef(options.AgentName, readBack.Version, Sha256(definition.Instructions), ToolsSha256(definition)!);
+        var definition = readBack.GetProperty("definition");
+        return new AgentVersionRef(options.AgentName, version, Sha256(Text(definition, "instructions")), ToolsSha256(definition.GetProperty("tools"))!);
     }
 
     /// <summary>The code's definition: the GPT deployment, the instructions and each tool as a function with its closed schema.</summary>
@@ -81,44 +95,63 @@ public static class PromptAgentProvisioner
         return definition;
     }
 
-    /// <summary>What in <paramref name="version"/> is not the code's, first found; null when nothing.</summary>
-    private static string? Difference(ProjectsAgentVersion version, FoundryOptions options, string toolsSha256)
+    /// <summary>What in the version (its raw JSON) is not the code's, first found, by its field's name; null when nothing.</summary>
+    private static string? Difference(JsonElement version, FoundryOptions options, string toolsSha256)
     {
-        if (version.Definition is not DeclarativeAgentDefinition definition)
+        if (!version.TryGetProperty("definition", out var definition) || definition.ValueKind != JsonValueKind.Object)
+        {
+            return "definition";
+        }
+
+        if (Text(definition, "kind") != "prompt")
         {
             return "kind (prompt)";
         }
 
-        if (definition.Model != options.GptDeployment)
+        if (Text(definition, "model") != options.GptDeployment)
         {
             return "model";
         }
 
-        if (definition.Instructions != AgentInstructions.Text)
+        if (Text(definition, "instructions") != AgentInstructions.Text)
         {
             return "instructions";
         }
 
-        if (ToolsSha256(definition) != toolsSha256)
+        if (!definition.TryGetProperty("tools", out var tools) || ToolsSha256(tools) != toolsSha256)
         {
             return "tools";
         }
 
-        if (definition.Temperature != AgentSettings.Temperature)
-        {
-            return "temperature";
-        }
-
-        // The code sets no sampling but the temperature: a top_p would change it all the same.
-        return definition.TopP is null ? null : "top_p";
+        // Everything else the definition holds must be at its default: the code sets none of it.
+        return definition.EnumerateObject()
+            .Where(p => !Compared.Contains(p.Name, StringComparer.Ordinal) && !IsDefault(p.Name, p.Value))
+            .Select(p => p.Name)
+            .FirstOrDefault();
     }
 
-    /// <summary>The agent's latest version; null when there is no agent of that name yet.</summary>
-    private static async Task<ProjectsAgentVersion?> LatestAsync(AgentAdministrationClient admin, string name, CancellationToken ct)
+    /// <summary>
+    /// Whether a field is at its default: null, an empty list, an object whose members all are,
+    /// <c>tool_choice: "auto"</c> or a text format of type <c>text</c>.
+    /// </summary>
+    private static bool IsDefault(string name, JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.Undefined => true,
+        JsonValueKind.Array => value.GetArrayLength() == 0,
+        JsonValueKind.Object => value.EnumerateObject().All(p => IsDefault(p.Name, p.Value)),
+        JsonValueKind.String => (name, value.GetString()) is ("tool_choice", "auto") or ("type", "text"),
+        _ => false,
+    };
+
+    /// <summary>The agent's latest version, in its raw JSON; null when there is no agent of that name yet.</summary>
+    private static async Task<JsonElement?> LatestAsync(AgentAdministrationClient admin, string name, CancellationToken ct)
     {
         try
         {
-            return (await admin.GetAgentAsync(name, ct).ConfigureAwait(false)).Value.GetLatestVersion();
+            var agent = Raw(await admin.GetAgentAsync(name, ct).ConfigureAwait(false));
+            return agent.TryGetProperty("versions", out var versions) && versions.TryGetProperty("latest", out var latest) && latest.ValueKind == JsonValueKind.Object
+                ? latest
+                : null;
         }
         catch (ClientResultException e) when (e.Status == 404)
         {
@@ -126,17 +159,46 @@ public static class PromptAgentProvisioner
         }
     }
 
-    /// <summary>The <see cref="ToolSchemas"/> hash of a definition's tools; null when one is not a function tool.</summary>
-    private static string? ToolsSha256(DeclarativeAgentDefinition definition)
+    /// <summary>
+    /// The <see cref="ToolSchemas"/> hash of a definition's tools; null when one is not a function,
+    /// or holds a field the code does not set at other than its default.
+    /// </summary>
+    private static string? ToolsSha256(JsonElement tools)
     {
-        var functions = definition.Tools.OfType<FunctionTool>().ToList();
-        if (functions.Count != definition.Tools.Count)
+        if (tools.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
 
-        return ToolSchemas.Sha256(functions.Select(f => (f.FunctionName, (string?)f.FunctionDescription, JsonDocument.Parse(f.FunctionParameters ?? BinaryData.FromString("{}")).RootElement.Clone())));
+        var entries = new List<(string Name, string? Description, JsonElement Parameters)>();
+        foreach (var tool in tools.EnumerateArray())
+        {
+            if (tool.ValueKind != JsonValueKind.Object
+                || Text(tool, "type") != "function"
+                || Text(tool, "name") is not { } name
+                || tool.EnumerateObject().Any(p => !ToolFields.Contains(p.Name, StringComparer.Ordinal) && !IsDefault(p.Name, p.Value)))
+            {
+                return null;
+            }
+
+            var parameters = tool.TryGetProperty("parameters", out var given) && given.ValueKind == JsonValueKind.Object
+                ? given
+                : JsonDocument.Parse("{}").RootElement;
+            entries.Add((name, Text(tool, "description"), parameters));
+        }
+
+        return ToolSchemas.Sha256(entries);
     }
+
+    /// <summary>A result's body as JSON, as the service sent it.</summary>
+    private static JsonElement Raw(ClientResult result)
+    {
+        using var json = JsonDocument.Parse(result.GetRawResponse().Content);
+        return json.RootElement.Clone();
+    }
+
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static string Sha256(string? text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text ?? "")));
 }

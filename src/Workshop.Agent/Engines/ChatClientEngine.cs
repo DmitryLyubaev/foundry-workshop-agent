@@ -130,18 +130,19 @@ public sealed class ChatClientEngine : IAgentEngine
         {
             // The model's service failed, not the model: the runner drops the run as infrastructure,
             // keeping the calls the model answered, so their tokens are still counted.
-            Activity.Current?.AddException(e);
+            Redaction.AddException(Activity.Current, e);
             return new EngineResult(EngineOutcome.ServiceError, null, recording.Calls, Describe(e));
         }
         catch (Exception e) when (!ct.IsCancellationRequested && !loop.IsToolFailure(e))
         {
             // The model or the loop failed; a tool's failure and the caller's cancellation go on as they were thrown.
-            Activity.Current?.AddException(e);
+            Redaction.AddException(Activity.Current, e);
             return new EngineResult(EngineOutcome.EngineError, null, recording.Calls, Describe(e));
         }
     }
 
-    private static string Describe(Exception e) => $"{e.GetType().FullName}: {e.Message}";
+    // Redacted: a service's error text names principals, projects and hosts, and Error reaches the transcript and the console.
+    private static string Describe(Exception e) => Redaction.Describe(e);
 
     /// <summary>
     /// The model's answer: every assistant message after the last tool result, joined by new lines,

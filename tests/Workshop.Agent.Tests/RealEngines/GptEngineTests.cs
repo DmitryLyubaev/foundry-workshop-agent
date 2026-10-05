@@ -115,6 +115,7 @@ public sealed class GptEngineTests
     [InlineData("403")]
     [InlineData("500")]
     [InlineData("503")]
+    [InlineData("408")]
     [InlineData("network")]
     [InlineData("timeout")]
     public async Task Service_failures_are_infra_and_not_retried(string kind)
@@ -209,6 +210,7 @@ public sealed class GptEngineTests
         "403" => () => FakeModelService.Json(403, Recorded.AzureError("Forbidden", "Public access is disabled.")),
         "500" => () => FakeModelService.Json(500, Recorded.AzureError("InternalServerError", "The server had an error.")),
         "503" => () => FakeModelService.Json(503, Recorded.AzureError("ServiceUnavailable", "The service is busy.")),
+        "408" => () => FakeModelService.Json(408, Recorded.AzureError("Timeout", "The request timed out.")),
         "network" => () => throw new HttpRequestException("No such host is known."),
         "timeout" => () => throw new TaskCanceledException("The request was canceled due to the configured timeout.", new TimeoutException("The operation timed out.")),
         "content filter" => () => FakeModelService.Json(400, Recorded.AzureContentFilter),

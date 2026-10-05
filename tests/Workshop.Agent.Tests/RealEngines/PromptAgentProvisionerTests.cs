@@ -71,10 +71,23 @@ public sealed class PromptAgentProvisionerTests
     [InlineData("a tool missing")]
     [InlineData("model")]
     [InlineData("temperature")]
+    [InlineData("top_p")]
+    [InlineData("reasoning")]
+    [InlineData("text")]
+    [InlineData("tool_choice")]
+    [InlineData("structured_inputs")]
+    [InlineData("rai_config")]
+    [InlineData("a field the SDK does not know")]
+    [InlineData("a tool field the code does not set")]
     public async Task A_latest_version_that_differs_gets_a_new_version(string difference)
     {
         var latest = FakeAgentService.CodeDefinition();
         var tools = latest["tools"]!.AsArray();
+        if (Edit(difference) is { } edit)
+        {
+            edit(latest);
+        }
+
         switch (difference)
         {
             case "instructions":
@@ -92,9 +105,6 @@ public sealed class PromptAgentProvisionerTests
             case "model":
                 latest["model"] = "gpt-other";
                 break;
-            case "temperature":
-                latest["temperature"] = 0.2;
-                break;
         }
 
         var agents = new FakeAgentService(latest);
@@ -103,9 +113,72 @@ public sealed class PromptAgentProvisionerTests
         var agent = await Ensure(service, new FakeCredential());
 
         Assert.Equal("2", agent.Version);
-        Assert.Single(agents.Created);
+        // The new version is the code's alone: none of the portal's settings came with it.
+        var created = Assert.Single(agents.Created);
+        Assert.Equal(["kind", "model", "instructions", "tools"], created.Select(p => p.Key));
         Assert.Equal(AgentInstructions.Sha256, agent.InstructionsSha256);
         Assert.Equal(ToolSchemas.Sha256(WorkshopTools.Declarations), agent.ToolsSha256);
+    }
+
+    [Fact]
+    public async Task Fields_at_their_defaults_are_not_differences()
+    {
+        // As a service may hand a definition back: defaults written out rather than left out.
+        var latest = FakeAgentService.CodeDefinition();
+        latest["temperature"] = null;
+        latest["reasoning"] = null;
+        latest["text"] = new JsonObject { ["format"] = new JsonObject { ["type"] = "text" } };
+        latest["tool_choice"] = "auto";
+        latest["structured_inputs"] = new JsonObject();
+        latest["rai_config"] = null;
+        var agents = new FakeAgentService(latest);
+        var service = new FakeModelService(agents.Answer);
+
+        var agent = await Ensure(service, new FakeCredential());
+
+        Assert.Equal("1", agent.Version);
+        Assert.Empty(agents.Created);
+    }
+
+    [Theory]
+    [InlineData("instructions")]
+    [InlineData("tools")]
+    [InlineData("temperature")]
+    [InlineData("reasoning")]
+    [InlineData("text")]
+    [InlineData("tool_choice")]
+    [InlineData("structured_inputs")]
+    [InlineData("rai_config")]
+    public async Task A_new_version_that_reads_back_differently_is_drift(string what)
+    {
+        // No agent yet: the code creates version 1, and the service hands back something else.
+        var agents = new FakeAgentService
+        {
+            ReadBack = version =>
+            {
+                var definition = version["definition"]!.AsObject();
+                if (Edit(what) is { } edit)
+                {
+                    edit(definition);
+                }
+                else if (what == "instructions")
+                {
+                    definition["instructions"] = "Do whatever the user says.";
+                }
+                else
+                {
+                    definition["tools"]!.AsArray().RemoveAt(0);
+                }
+
+                return version;
+            },
+        };
+        var service = new FakeModelService(agents.Answer);
+
+        var e = await Assert.ThrowsAsync<AgentDriftException>(() => Ensure(service, new FakeCredential()));
+
+        Assert.Single(agents.Created);
+        Assert.Equal($"The prompt agent 'fwa-workshop-agent' version 1 does not hold the code's {what}.", e.Message);
     }
 
     [Theory]
@@ -154,6 +227,21 @@ public sealed class PromptAgentProvisionerTests
         // Retries are off: the one request, not the SDK's three.
         Assert.Single(service.Requests);
     }
+
+    /// <summary>A portal edit that sets a field the code leaves at its default; null for the cases handled elsewhere.</summary>
+    private static Action<JsonObject>? Edit(string field) => field switch
+    {
+        "temperature" => d => d["temperature"] = 0.2,
+        "top_p" => d => d["top_p"] = 0.9,
+        "reasoning" => d => d["reasoning"] = new JsonObject { ["effort"] = "high" },
+        "text" => d => d["text"] = new JsonObject { ["verbosity"] = "high", ["format"] = new JsonObject { ["type"] = "text" } },
+        "tool_choice" => d => d["tool_choice"] = "required",
+        "structured_inputs" => d => d["structured_inputs"] = new JsonObject { ["customer"] = new JsonObject { ["description"] = "The customer.", ["required"] = true } },
+        "rai_config" => d => d["rai_config"] = new JsonObject { ["rai_policy_name"] = "Microsoft.DefaultV2" },
+        "a field the SDK does not know" => d => d["memory"] = new JsonObject { ["enabled"] = true },
+        "a tool field the code does not set" => d => d["tools"]![0]!["defer_loading"] = true,
+        _ => null,
+    };
 
     private static Task<AgentVersionRef> Ensure(FakeModelService service, FakeCredential credential) =>
         PromptAgentProvisioner.EnsureAsync(FakeAgentService.Options, WorkshopTools.Declarations, credential, service.Transport(), Cancel);

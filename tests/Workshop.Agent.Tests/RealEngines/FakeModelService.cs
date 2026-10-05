@@ -8,7 +8,7 @@ using Azure.Identity;
 namespace Workshop.Agent.Tests.RealEngines;
 
 /// <summary>One request the SDK sent, as the fake service saw it.</summary>
-internal sealed record SentRequest(HttpMethod Method, Uri Uri, string? Authorization, string Body)
+internal sealed record SentRequest(HttpMethod Method, Uri Uri, string? Authorization, string Body, IReadOnlyDictionary<string, string> Headers)
 {
     /// <summary>The request's path, without the query.</summary>
     public string Path => Uri.AbsolutePath;
@@ -64,7 +64,9 @@ internal sealed class FakeModelService(Func<SentRequest, HttpResponseMessage> an
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
-        var sent = new SentRequest(request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(), body);
+        var headers = request.Headers.Concat(request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>())
+            .ToDictionary(h => h.Key, h => string.Join(",", h.Value), StringComparer.OrdinalIgnoreCase);
+        var sent = new SentRequest(request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(), body, headers);
         lock (gate)
         {
             requests.Add(sent);

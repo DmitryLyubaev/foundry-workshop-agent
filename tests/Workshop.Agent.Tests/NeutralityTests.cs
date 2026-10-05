@@ -75,6 +75,13 @@ public sealed class NeutralityTests
         Assert.False(gptRequest.TryGetProperty("temperature", out _));
         Assert.False(claudeRequest.TryGetProperty("temperature", out _));
 
+        // Nor any other sampling or tool setting on Claude's side, which GPT's version does not hold either.
+        foreach (var absent in new[] { "top_p", "top_k", "tool_choice", "thinking" })
+        {
+            Assert.False(claudeRequest.TryGetProperty(absent, out _), $"Claude's request carries '{absent}'.");
+            Assert.False(definition.TryGetProperty(absent, out _), $"GPT's agent version holds '{absent}'.");
+        }
+
         // And the GPT request runs the version that holds them.
         Assert.Equal(agent.Version, gptRequest.GetProperty("agent_reference").GetProperty("version").GetString());
         Assert.Equal(AgentInstructions.Sha256, agent.InstructionsSha256);

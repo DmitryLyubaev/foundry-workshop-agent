@@ -55,7 +55,7 @@ public sealed class RecordingChatClient : DelegatingChatClient
         }
         catch (Exception e)
         {
-            span?.SetStatus(ActivityStatusCode.Error, e.Message);
+            span?.SetStatus(ActivityStatusCode.Error, Redaction.Redact(e.Message));
             throw;
         }
 
