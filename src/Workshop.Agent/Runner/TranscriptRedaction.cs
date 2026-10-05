@@ -21,12 +21,13 @@ public static class TranscriptRedaction
 
     /// <summary>
     /// Re-redacts every transcript under <paramref name="dir"/>, its subdirectories too (a study's
-    /// <c>repeats</c>), and appends a line to <see cref="LogFileName"/> for each one it changed.
+    /// <c>repeats</c>), and appends a line to <see cref="LogFileName"/> for each one it changed,
+    /// before it rewrites that file. Nothing is written until every file has parsed.
     /// A JSON file that is not a transcript, such as <c>eval-scores.json</c>, is left alone.
     /// </summary>
     /// <param name="today">The date each log line carries.</param>
     /// <returns>How many transcripts changed, of how many there are.</returns>
-    /// <exception cref="JsonException">A <c>*.json</c> file is not JSON.</exception>
+    /// <exception cref="JsonException">A <c>*.json</c> file is not JSON; nothing has been written.</exception>
     public static (int Changed, int Transcripts) Apply(string dir, DateOnly today)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dir);
@@ -35,7 +36,10 @@ public static class TranscriptRedaction
             .OrderBy(f => f.Relative, StringComparer.Ordinal)
             .ToList();
 
-        var log = new List<string>();
+        // Every file is read and parsed before any is written: a file that is not JSON stops the
+        // command with nothing rewritten, rather than with earlier files rewritten and never logged
+        // (a second run would find nothing to change, so the edit would go unlogged for good).
+        var rewrites = new List<(string Path, JsonObject Root, string Line)>();
         var transcripts = 0;
         foreach (var (path, relative) in files)
         {
@@ -55,22 +59,24 @@ public static class TranscriptRedaction
                 }
             }
 
-            if (changed.Count == 0)
+            if (changed.Count > 0)
             {
-                continue;
+                rewrites.Add((path, root, string.Create(CultureInfo.InvariantCulture, $"- {today:yyyy-MM-dd}: {relative}: {string.Join(", ", changed)} re-redacted by Workshop.Agent transcripts redact.")));
             }
+        }
+
+        var log = Path.Combine(dir, LogFileName);
+        foreach (var (path, root, line) in rewrites)
+        {
+            // The line goes in before the write: a write that then fails leaves a line for an edit
+            // a second run makes (and logs) again, never an edit without a line.
+            File.AppendAllText(log, line + "\n", new UTF8Encoding(false));
 
             // Written as the runner writes a transcript, so only the changed fields differ.
             File.WriteAllBytes(path, Encoding.UTF8.GetBytes(root.ToJsonString(Transcript.Json)));
-            log.Add(string.Create(CultureInfo.InvariantCulture, $"- {today:yyyy-MM-dd}: {relative}: {string.Join(", ", changed)} re-redacted by Workshop.Agent transcripts redact."));
         }
 
-        if (log.Count > 0)
-        {
-            File.AppendAllText(Path.Combine(dir, LogFileName), string.Concat(log.Select(line => line + "\n")), new UTF8Encoding(false));
-        }
-
-        return (log.Count, transcripts);
+        return (rewrites.Count, transcripts);
     }
 
     private static bool IsTranscript(JsonObject root) =>

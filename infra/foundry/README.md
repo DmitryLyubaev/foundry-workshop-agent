@@ -89,7 +89,7 @@ and the same for the others.
 | `claude_provider_country_code` | its two-letter country code, such as `AU` | none |
 | `claude_provider_industry` | its industry, in lowercase: `technology`, `finance`, `healthcare`, `education`, `retail`, `manufacturing`, `government`, `media` or `other` | none |
 | `capacity` | each deployment's capacity, the same for both, in thousands of TPM (1 to 80) | `25` |
-| `claude_model_version` | the Claude version to pin | `1` |
+| `claude_model_version` | the Claude version to pin: `2` is Hosted on Azure (prompts and completions stay in Azure), the owner's choice; `1` is Hosted on Anthropic | `2` |
 | `location` | the region | `eastus2` |
 
 Put them in a git-ignored `terraform.tfvars` in this folder, in your own window:

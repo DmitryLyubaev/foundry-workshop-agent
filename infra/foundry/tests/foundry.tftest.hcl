@@ -137,8 +137,13 @@ run "deployments" {
   }
 
   assert {
-    condition     = azapi_resource.claude.body.properties.model.format == "Anthropic" && azapi_resource.claude.body.properties.model.name == "claude-haiku-4-5" && azapi_resource.claude.body.properties.model.version == "1"
+    condition     = azapi_resource.claude.body.properties.model.format == "Anthropic" && azapi_resource.claude.body.properties.model.name == "claude-haiku-4-5" && azapi_resource.claude.body.properties.model.version == "2"
     error_message = "The Claude deployment's model must be Anthropic claude-haiku-4-5, at the pinned version."
+  }
+
+  assert {
+    condition     = var.claude_model_version == "2"
+    error_message = "claude_model_version must default to \"2\", Hosted on Azure, the owner's choice: version 1 is Hosted on Anthropic, and prompts and completions would leave Azure."
   }
 
   assert {

@@ -64,8 +64,8 @@ variable "capacity" {
 
 variable "claude_model_version" {
   type        = string
-  description = "The claude-haiku-4-5 model version to pin. Foundry's Claude models are listed as version 1 (the Claude starter kit's default)."
-  default     = "1"
+  description = "The claude-haiku-4-5 model version to pin. Version 2 is Hosted on Azure: prompts and completions stay in Azure, and it is the owner's choice. Version 1 is Hosted on Anthropic: they would leave Azure for Anthropic's own service."
+  default     = "2"
 }
 
 # modelProviderData. The first apply of the Claude deployment accepts Anthropic's Marketplace terms

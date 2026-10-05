@@ -413,9 +413,17 @@ In WSL:
 
    **Expected:** at least one `gpt-5.6-luna` version, of the form `YYYY-MM-DD`, offering
    `GlobalStandard`. The owner picks one: the newest generally available version, unless there is a
-   reason not to. Claude lists version `1` with `GlobalStandard`, which matches
-   `claude_model_version`'s default. **Stop if** either model has no `GlobalStandard` in eastus2.
-   Write the chosen version in the [findings log](#findings-log).
+   reason not to.
+
+   Claude is deployed as version `2`, `claude_model_version`'s default: the owner's choice
+   (5 October 2026). Version `2` is Hosted on Azure, so prompts and completions stay in Azure, as
+   the GPT engine's and the traces do. Version `1` is Hosted on Anthropic: they would leave Azure
+   for Anthropic's own service, a different data-handling boundary for one engine only. The
+   catalogue must list version `2` with `GlobalStandard`.
+
+   **Stop if** either model has no `GlobalStandard` in eastus2, or Claude has no version `2`. Never
+   set `claude_model_version` to `1` to get past it: bring it to the owner. Write the chosen GPT
+   version, and Claude's `2`, in the [findings log](#findings-log).
 
 3. **Quota.** Check that both capacities fit:
 
@@ -524,8 +532,9 @@ foundry README states. Read these values in the plan:
 - the GPT deployment: model `gpt-5.6-luna`, the chosen version, `version_upgrade_option = "NoAutoUpgrade"`,
   SKU `GlobalStandard`, capacity 25 (or the `capacity` set in 4.1);
 - Claude: type `Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview`, format
-  `Anthropic`, model `claude-haiku-4-5`, version `1`, `versionUpgradeOption = "NoAutoUpgrade"`, SKU
-  `GlobalStandard`, the same capacity as GPT, and the three details in `modelProviderData`;
+  `Anthropic`, model `claude-haiku-4-5`, version `2` (Hosted on Azure),
+  `versionUpgradeOption = "NoAutoUpgrade"`, SKU `GlobalStandard`, the same capacity as GPT, and the
+  three details in `modelProviderData`;
 - Log Analytics and Application Insights: `local_authentication_enabled = false`; Log Analytics
   `daily_quota_gb = 1`;
 - the connection: category `AppInsights`, `authType = "AAD"`;
@@ -674,8 +683,9 @@ s01 p1: success (completed, <k> tool calls, 0 gate violations, <t> s)
 **Expected (Claude):** the same, with no prompt-agent line.
 
 A task failure that the model made (outcome `completed`, `tool_limit` or `truncated`) is a result.
-Read its transcript, but it does not stop the step. Then read the models the services say answered,
-and write them in the [findings log](#findings-log):
+Read its transcript, but it does not stop the step. A run ending `time_limit`, `content_filtered` or
+`throttled` is not one: it stops the step (below), as it does in 6.2 and 7.2. Then read the models
+the services say answered, and write them in the [findings log](#findings-log):
 
 ```powershell
 Get-ChildItem $smoke -Filter 's01.*.json' | ForEach-Object {
@@ -697,6 +707,11 @@ Get-ChildItem $smoke -Filter 's01.*.json' | ForEach-Object {
   agent version the service does not have), DNS, a credential, or the app failing to start. A new
   role can take a few minutes after step 4: wait, and run the command once more. If it repeats,
   stop.
+- either run ends `time_limit` or `content_filtered`. The owner reads its transcript, as in 6.2
+  and 7.2: one scenario that runs out of time or is filtered is a setup fault until shown otherwise.
+- either run ends `throttled`. The capacity is too small even for one run; the study would count
+  that against the engine, as 6.2 says. Check the quota and `capacity` (4.1), and bring it to the
+  owner.
 - `--trace` refuses with `FWA_APPINSIGHTS_CONNECTION_STRING ...`.
 
 ### 5.2 What Foundry echoes back for the prompt agent
@@ -1127,6 +1142,9 @@ yourself, never by printing it to a log.
    ```
 
    **Expected:** `Re-redacted <r> of <t> transcripts; each is logged in ...redactions.md.`
+   **Stop if** it exits non-zero, and bring its message to the owner. It parses every transcript
+   before it writes any, and logs each file before it rewrites it, so a failure leaves no unlogged
+   edit.
 3. Scan again, as above, and add a row to the [findings log](#findings-log): the date, the kind
    found, the PR, and `<r>`.
 
@@ -1427,6 +1445,7 @@ identifiers, yes or no.
 | Check | Step | Found |
 |---|---|---|
 | `gpt_model_version` read from the eastus2 catalogue | 4.1 | `<YYYY-MM-DD>` |
+| Claude version `2` (Hosted on Azure) listed with `GlobalStandard` in eastus2 | 4.1 | `2` |
 | `Microsoft.SaaS` / `Microsoft.MarketplaceOrdering` registered by the bootstrap | 4.1 | |
 | The capacity used for both deployments (thousands of TPM) | 4.1 | `25` |
 | The Claude deployment accepts `versionUpgradeOption = "NoAutoUpgrade"` | 4.4 | |

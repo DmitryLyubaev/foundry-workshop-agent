@@ -163,6 +163,25 @@ public sealed class RedactionTests
     }
 
     [Fact]
+    public async Task Transcripts_redact_rewrites_nothing_unlogged_when_a_later_file_is_not_json()
+    {
+        using var study = TempRun.Create();
+        var leaked = "System.InvalidOperationException: request 00112233445566778899aabbccddeeff failed.";
+        var path = MakeTranscript(infraMessage: leaked, error: leaked, toolResult: """{"outcome":"ok"}""").Write(study.Directory);
+        var before = File.ReadAllBytes(path);
+        // Sorts after s05, so a command that wrote as it went would have rewritten s05 already.
+        File.WriteAllText(Path.Combine(study.Directory, "s07.fake.p1.json"), """{"scenarioId":"s07","engine":""");
+
+        var (code, _, error) = await Run("transcripts", "redact", study.Directory);
+
+        Assert.Equal(1, code);
+        Assert.NotEqual("", error);
+        // Every rewrite has its log line: here, nothing was rewritten, so nothing is logged.
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(File.Exists(Path.Combine(study.Directory, "redactions.md")));
+    }
+
+    [Fact]
     public async Task Transcripts_redact_refuses_a_missing_directory()
     {
         using var study = TempRun.Create();
