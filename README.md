@@ -259,7 +259,8 @@ agent's own spans (`Workshop.Agent`), Agent Framework's run span (`Experimental.
 and the Foundry SDK's GenAI spans (`Azure.AI.Projects.*`). Every span is redacted as above before it
 is sent, and one holding an identifier that cannot be redacted is not sent. The messages, tool
 arguments and tool results are left out; `--trace-content` puts them in, for development only, and
-is refused with `--study` and `--frozen`.
+is refused with `--study` and `--frozen`. The exporter's own statistics (statsbeat) are turned off,
+and a batch that fails to send is dropped rather than kept on disk.
 
 ## Security model
 

@@ -3,10 +3,12 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Azure.Core.Pipeline;
+using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenTelemetry.Trace;
@@ -96,6 +98,49 @@ public sealed class TraceExportTests
     }
 
     [Fact]
+    public void Statsbeat_is_off_while_tracing_and_restored_after()
+    {
+        // The exporter's own statistics would go to Microsoft with the instrumentation key, after an IMDS probe.
+        // Only an environment variable turns them off (the option is internal), and the exporter reads its
+        // environment once, when first built: so the variable must be set before that, whatever it was.
+        var ambient = Environment.GetEnvironmentVariable(TraceExport.StatsbeatDisabledVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(TraceExport.StatsbeatDisabledVariable, "false");
+            using (Start(new FakeIngestion(), new FakeCredential(), []))
+            {
+                Assert.Equal("true", Environment.GetEnvironmentVariable(TraceExport.StatsbeatDisabledVariable));
+
+                // What the exporter itself read: its platform's snapshot of the environment, taken when the
+                // first export in this process was built (every export sets the variable first).
+                var platform = typeof(AzureMonitorExporterOptions).Assembly
+                    .GetType("Azure.Monitor.OpenTelemetry.Exporter.Internals.Platform.DefaultPlatform", throwOnError: true)!;
+                var instance = platform.GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null);
+                var read = platform.GetMethod("GetEnvironmentVariable", BindingFlags.Instance | BindingFlags.Public)!.Invoke(instance, [TraceExport.StatsbeatDisabledVariable]);
+                Assert.Equal("true", read);
+            }
+
+            Assert.Equal("false", Environment.GetEnvironmentVariable(TraceExport.StatsbeatDisabledVariable));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(TraceExport.StatsbeatDisabledVariable, ambient);
+        }
+    }
+
+    [Fact]
+    public void Offline_storage_is_off()
+    {
+        // A batch that fails to send is dropped, not kept in the temp directory for a later run.
+        bool? disabled = null;
+        using (Start(new FakeIngestion(), new FakeCredential(), [], inspect: o => disabled = o.DisableOfflineStorage))
+        {
+        }
+
+        Assert.True(disabled);
+    }
+
+    [Fact]
     public async Task Trace_refused_without_a_connection_string()
     {
         foreach (var value in new string?[] { null, "", "  " })
@@ -151,10 +196,11 @@ public sealed class TraceExportTests
     [Fact]
     public async Task Content_capture_off_by_default()
     {
+        var ingestion = new FakeIngestion();
         var exported = new List<Activity>();
 
         ActivityTraceId trace;
-        using (Start(new FakeIngestion(), new FakeCredential(), exported))
+        using (Start(ingestion, new FakeCredential(), exported))
         {
             Assert.False(TraceExport.CaptureContent);
             // Foundry's GenAI spans hold no message content either; the switch wins over the environment variable.
@@ -171,25 +217,36 @@ public sealed class TraceExportTests
         Assert.DoesNotContain("marker-argument", text, StringComparison.Ordinal);
         Assert.DoesNotContain("marker-reply", text, StringComparison.Ordinal);
         Assert.DoesNotContain(spans, a => a.GetTagItem("gen_ai.input.messages") is not null || a.GetTagItem("gen_ai.output.messages") is not null);
+
+        // Nor in what was sent to Application Insights.
+        var body = string.Join('\n', ingestion.Requests.Select(r => r.Body));
+        Assert.Contains(AgentTelemetry.ScenarioRun, body, StringComparison.Ordinal);
+        Assert.DoesNotContain("marker-task", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("marker-argument", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("marker-reply", body, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Content_capture_on_only_when_asked_and_off_again_after()
     {
+        var ingestion = new FakeIngestion();
         var exported = new List<Activity>();
 
         ActivityTraceId trace;
-        using (Start(new FakeIngestion(), new FakeCredential(), exported, captureContent: true))
+        using (Start(ingestion, new FakeCredential(), exported, captureContent: true))
         {
             Assert.True(TraceExport.CaptureContent);
             Assert.True(AppContext.TryGetSwitch(TraceExport.GenAIContentSwitch, out var content) && content);
             trace = await RunWithMarkers();
         }
 
-        // The messages are in the agent's span: so the test above, finding none, means none were captured.
+        // The messages are in the agent's span and in what was sent: so the test above, finding none, means none were captured.
         var text = Everything(exported.Where(a => a.TraceId == trace));
         Assert.Contains("marker-task", text, StringComparison.Ordinal);
         Assert.Contains("marker-reply", text, StringComparison.Ordinal);
+        var body = string.Join('\n', ingestion.Requests.Select(r => r.Body));
+        Assert.Contains("marker-task", body, StringComparison.Ordinal);
+        Assert.Contains("marker-argument", body, StringComparison.Ordinal);
 
         Assert.False(TraceExport.CaptureContent);
         Assert.True(AppContext.TryGetSwitch(TraceExport.GenAIContentSwitch, out var after));
@@ -256,15 +313,17 @@ public sealed class TraceExportTests
     }
 
     /// <summary>The export, sending to <paramref name="ingestion"/> and also to <paramref name="exported"/>.</summary>
-    private static IDisposable Start(FakeIngestion ingestion, FakeCredential credential, List<Activity> exported, bool captureContent = false) =>
+    /// <param name="inspect">Sees the exporter's options as TraceExport set them, before the test changes them.</param>
+    private static IDisposable Start(FakeIngestion ingestion, FakeCredential credential, List<Activity> exported, bool captureContent = false, Action<AzureMonitorExporterOptions>? inspect = null) =>
         TraceExport.Start(
             ConnectionString,
             credential,
             captureContent,
             o =>
             {
+                inspect?.Invoke(o);
                 o.Transport = new HttpClientTransport(new HttpClient(ingestion, disposeHandler: false));
-                // Nothing written to disk for a later retry.
+                // As TraceExport sets it: kept here so that no test run writes to disk, even with that broken.
                 o.DisableOfflineStorage = true;
             },
             b => b.AddInMemoryExporter(exported));

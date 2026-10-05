@@ -37,6 +37,13 @@ public static class TraceExport
     /// </summary>
     public const string GenAIContentSwitch = "Azure.Experimental.TraceGenAIMessageContent";
 
+    /// <summary>
+    /// The variable that turns off the exporter's statsbeat: its own statistics, sent to Microsoft with
+    /// the instrumentation key after a probe of the Azure instance metadata address. The exporter's
+    /// option for it (<c>EnableStatsbeat</c>) is internal and not bound from configuration, so this is the only way.
+    /// </summary>
+    public const string StatsbeatDisabledVariable = "APPLICATIONINSIGHTS_STATSBEAT_DISABLED";
+
     private static int contentCaptured;
 
     /// <summary>The sources the export subscribes to.</summary>
@@ -73,6 +80,11 @@ public static class TraceExport
         AppContext.SetSwitch(GenAIContentSwitch, captureContent);
         Volatile.Write(ref contentCaptured, captureContent ? 1 : 0);
 
+        // Statsbeat off, whatever the environment said: set before the exporter is built, as it reads its
+        // environment once, the first time one is built in the process. Put back as it was when the export stops.
+        var statsbeat = Environment.GetEnvironmentVariable(StatsbeatDisabledVariable);
+        Environment.SetEnvironmentVariable(StatsbeatDisabledVariable, "true");
+
         // Where an exception is recorded on a span (Activity.AddException), its message and stack trace go in redacted.
         var exceptions = new ActivityListener
         {
@@ -97,14 +109,17 @@ public static class TraceExport
                 o.SamplingRatio = 1f;
                 // Not supported by this exporter, which says so in its log when left on.
                 o.EnableLiveMetrics = false;
+                // A batch that fails to send is dropped, not kept in the temp directory for a later run:
+                // the spans the run sends as it ends (see Export) are the last word.
+                o.DisableOfflineStorage = true;
                 configure?.Invoke(o);
             });
-            return new Export(builder.Build(), exceptions);
+            return new Export(builder.Build(), exceptions, statsbeat);
         }
         catch
         {
             exceptions.Dispose();
-            Stop();
+            Stop(statsbeat);
             throw;
         }
     }
@@ -138,14 +153,19 @@ public static class TraceExport
         }
     }
 
-    private static void Stop()
+    /// <summary>Content capture off, and the statsbeat variable back to <paramref name="statsbeat"/>, its value before the export.</summary>
+    private static void Stop(string? statsbeat)
     {
         Volatile.Write(ref contentCaptured, 0);
         AppContext.SetSwitch(GenAIContentSwitch, false);
+        Environment.SetEnvironmentVariable(StatsbeatDisabledVariable, statsbeat);
     }
 
-    /// <summary>The running export: disposing it sends the spans not yet sent, stops, and turns content capture off.</summary>
-    private sealed class Export(TracerProvider provider, ActivityListener exceptions) : IDisposable
+    /// <summary>
+    /// The running export: disposing it sends the spans not yet sent, stops, turns content capture off
+    /// and puts the statsbeat variable back.
+    /// </summary>
+    private sealed class Export(TracerProvider provider, ActivityListener exceptions, string? statsbeat) : IDisposable
     {
         /// <summary>How long the last spans may take to send as the run ends.</summary>
         private const int FlushMilliseconds = 10_000;
@@ -156,12 +176,12 @@ public static class TraceExport
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                // Sent now: shut down without a flush, the exporter writes the last spans to disk and
-                // sends them only on a later run (Azure.Monitor.OpenTelemetry.Exporter 1.9's shutdown persistence).
+                // Sent now, within the flush's time: shutting down alone gives the last spans only the
+                // exporter's few seconds (Azure.Monitor.OpenTelemetry.Exporter 1.9's shutdown path).
                 provider.ForceFlush(FlushMilliseconds);
                 provider.Dispose();
                 exceptions.Dispose();
-                Stop();
+                Stop(statsbeat);
             }
         }
     }
