@@ -1477,4 +1477,4 @@ short hash its directory names.
 
 | Date | Short hash | What changed, and why |
 |---|---|---|
-| `<YYYY-MM-DD>` | `<hash12>` | The first freeze, after the owner's read-through. |
+| 2026-10-05 | `2601d16c644b` | The first freeze, after the owner's read-through. |
