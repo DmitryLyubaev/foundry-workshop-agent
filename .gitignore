@@ -12,3 +12,20 @@ TestResults/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Terraform (infra/bootstrap, infra/foundry). Values files hold the owner's identifiers; state and
+# saved plans hold every resolved value, so each is as sensitive as the other.
+infra/**/.terraform/
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+infra/**/tfplan
+infra/**/*.tfplan
+infra/**/*.tfvars
+infra/**/*.tfvars.json
+# Override files are local-only, such as a backend override that keeps state local.
+infra/**/override.tf
+infra/**/override.tf.json
+infra/**/*_override.tf
+infra/**/*_override.tf.json
+infra/**/crash*.log
+# .terraform.lock.hcl is committed on purpose: it pins the providers' exact versions and checksums.
