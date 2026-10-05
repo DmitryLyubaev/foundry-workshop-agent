@@ -181,6 +181,16 @@ resource "azapi_resource" "appinsights_connection" {
     }
   }
 
+  # The service also requires the connection string in the metadata (2026-10-05). azapi merges this
+  # into body, and keeps it out of plans and logs.
+  sensitive_body = {
+    properties = {
+      metadata = {
+        ApplicationInsightsConnectionString = azurerm_application_insights.foundry.connection_string
+      }
+    }
+  }
+
   depends_on = [azapi_resource.claude]
 }
 
