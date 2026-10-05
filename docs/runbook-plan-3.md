@@ -86,10 +86,13 @@ The fixed names in the code (`rg-fwa-bootstrap`, `rg-fwa-foundry`, `fwa-workshop
 
 In PowerShell on Windows, from the repository root. Free: it calls no model.
 
-1. Check the sign-in and set the bundle (see above):
+1. Check both sign-ins, and set the bundle (see above). Windows' `az` signs the agent and the
+   evaluation in; WSL's reads the Foundry stack's state in item 2. Both must show the personal
+   account. **Stop on a work account in either.**
 
    ```powershell
    az account show
+   wsl.exe -d Ubuntu --exec az account show
    $env:REQUESTS_CA_BUNDLE = "<path-to-ca-bundle-with-the-proxy-root.pem>"
    ```
 
@@ -615,8 +618,8 @@ gh secret list --env live-eval
   without `--trace`, so it never needs it. A value the job doesn't have can't leak. The workflow
   names `FWA_APPINSIGHTS_CONNECTION_STRING` in its mask and scan steps, and an unset value is
   skipped there. If a later change adds `--trace` to the workflow, set this secret in the same PR.
-  It would then also mask the connection string's region label, `eastus2`, which makes a transcript
-  that names the region a scan finding.
+  The scan takes the instrumentation key, the application id and the ingestion and live hosts from
+  it, but not its region labels (`eastus2`, `eastus2-0`): every report names the region.
 - `FWA_CLAUDE_DEPLOYMENT` is there although CI runs only GPT, because the agent reads all four
   settings before it starts.
 
@@ -841,7 +844,7 @@ $dry = "$env:LOCALAPPDATA\FoundryWorkshopAgent\dry-run-<YYYY-MM-DD>"
 :runs foreach ($s in 's05', 's13', 's17') {
     foreach ($e in 'gpt', 'claude') {
         dotnet run --project src/Workshop.Agent -c Release --no-build -- run --engine $e --scenarios scenarios --only $s --frozen --passes 1 --out $dry
-        if ($LASTEXITCODE -ne 0) { Write-Warning "$s on $e exited $LASTEXITCODE: stop and read it"; break runs }
+        if ($LASTEXITCODE -ne 0) { Write-Warning "$s on $e exited ${LASTEXITCODE}: stop and read it"; break runs }
     }
 }
 ```
@@ -900,20 +903,41 @@ the input and output tokens over the scoring's time window, split by deployment 
   per transcript);
 - the live CI run's figure: 20 × (GPT cost per task) + 20 × (scoring cost per transcript).
 
-The edit is committed with the results in step 8.
+**Commit the edit before step 7,** so that step 7 starts on a clean `main`. It is docs only, and
+the freeze does not cover it:
+
+```powershell
+git switch main
+git pull --ff-only
+git switch -c docs/dry-run-costs
+git add docs/runbook-plan-3.md
+git commit -m "docs(runbook): the dry run's measured costs replace the estimates"
+git push -u origin docs/dry-run-costs
+gh pr create --base main --title "The dry run's measured costs" --body "<the study's figure>"
+gh pr checks <pr> --watch
+gh pr merge <pr> --merge
+git switch main
+git pull --ff-only
+```
+
+The Findings log's rows from steps 4–6 can go in the same commit.
 
 ---
 
 ## Step 7. The study
 
-- **Ask first,** with the exact figure from step 6. The yes covers 20 scenarios × 3 passes × 2
-  engines = 120 runs with `--study`, the repeat of any infrastructure-error run (once, logged), the
-  scoring, and the report.
+- **Ask first,** with the exact figure from step 6. The yes covers:
+  - 20 scenarios × 3 passes × 2 engines = 120 runs with `--study`;
+  - the repeat of any infrastructure-error run, once, logged. A repeat of pass `<k>` also re-runs
+    passes 1 to `<k>`−1 of that scenario and engine, whose results are discarded. That is at most 2
+    extra paid runs per repeat (7.3);
+  - the scoring, and the report.
 - **Estimate:** about $3 before step 6. Step 6 replaces this with the measured figure in
   [Costs](#costs). If it is more than twice $3, say so when asking.
 - **Time:** about 1–3 hours. Each run is about 30–90 s, and at most 5 minutes.
 - **Before:** the [window setup](#window-setup-for-agent-runs-steps-58) and `az account show`.
-  `main` is checked out and clean, and its `freeze.json` is the one in the [freeze log](#freeze-log).
+  `main` is checked out and clean, with step 6's cost edit merged, and its `freeze.json` is the one
+  in the [freeze log](#freeze-log).
 
 ### 7.1 GPT, then Claude
 
@@ -963,6 +987,13 @@ The runner stops by itself on these, before any further model call:
 **Stop with Ctrl+C,** which ends the current run and closes the app, if:
 - 3 runs in a row are infrastructure errors. Something is down, and continuing only bills.
 
+After a Ctrl+C stop, start nothing else:
+1. Rename the directory to `...-<hash12>-stopped`, and keep it. It is not published as the study.
+2. Bring it to the owner, with the console's infrastructure-error lines (they are redacted).
+3. Once the cause is fixed, the study starts again from the first run, in a new directory (a new
+   `--out` date or suffix), under a new yes. A stopped study is never resumed: `--study` writes
+   whole passes, in order, and a part-study would mix two sessions.
+
 **At each checkpoint** (after GPT's 60 runs, and after Claude's 60, before the scoring), stop and
 bring it to the owner if:
 - **any run ended `truncated`;**
@@ -986,9 +1017,10 @@ Get-ChildItem $study -Filter 's*.json' | ForEach-Object { Get-Content $_.FullNam
     Where-Object infraError | ForEach-Object { '{0}.{1}.p{2}: {3}' -f $_.scenarioId, $_.engine, $_.pass, $_.outcome }
 ```
 
-For each one, `<id>.<engine>.p<k>`, repeat it once. A run of passes 1 to `<k>` goes into a separate
-directory, and only pass `<k>` is kept. The rule is fixed here, before any repeat, so no result is
-chosen:
+For each one, `<id>.<engine>.p<k>`, repeat it once. The CLI cannot run pass `<k>` on its own, so
+the repeat runs passes 1 to `<k>` into a separate directory, and only pass `<k>` is kept. **This
+re-runs the earlier passes 1 to `<k>`−1 as extra paid runs** (at most 2 per repeat), whose results
+are discarded unread. The rule is fixed here, before any repeat, so no result is chosen:
 
 ```powershell
 $rep = "$study-repeat-<id>-<engine>-p<k>"
@@ -1029,8 +1061,8 @@ warns of a freeze mismatch.
 
 - **Ask first.** The yes covers copying the scanned study directory into the repository; a README
   "Results" section; committing both with the [Costs](#costs) and [findings](#findings-log) updates;
-  pushing a branch; opening and merging a PR; and updating the portfolio tracker. The first live CI
-  run in 8.5 is a separate yes.
+  pushing a branch; opening and merging a PR; and updating the portfolio tracker (8.5). The first
+  live CI run in 8.4 is a separate yes.
 - **Estimate:** $0.
 
 ### 8.1 Scan before anything is copied
@@ -1088,12 +1120,7 @@ git pull --ff-only
 **Expected:** `git status --short` lists only the README, this runbook and the results directory.
 CI is green.
 
-### 8.4 The tracker
-
-Update the portfolio tracker, which is private and outside this repository: plan 3 done, the date,
-the verdict as rendered, the study's measured cost, and the PR.
-
-### 8.5 The first live CI evaluation (its own Ask first, about $1)
+### 8.4 The first live CI evaluation (its own Ask first, about $1)
 
 - **Ask first.** The yes covers one manual run of `.github/workflows/live-eval.yml` from `main`:
   20 scenarios on GPT with `--frozen --passes 1`, scored. The estimate is about $1, or the live CI
@@ -1137,6 +1164,12 @@ the verdict as rendered, the study's measured cost, and the PR.
 4. If a secret was set with a stray character (a sign-in error about a malformed ID), set it again
    as in step 3 or 4.
 
+### 8.5 The tracker
+
+Update the portfolio tracker, which is private and outside this repository: plan 3 done, the date,
+the verdict as rendered, the study's measured cost, the PR, and the first live CI run's outcome
+(or that it has not been run).
+
 ---
 
 ## Step 9. Leave it running, or destroy it
@@ -1146,59 +1179,100 @@ GB ingested. Leaving it up needs no yes. Destroying does.
 
 ### 9.1 Destroy the foundry stack
 
-- **Ask first.** The yes covers destroying everything in `rg-fwa-foundry`, purging the soft-deleted
-  Foundry resource, and deleting the four `FWA_*` secrets in `live-eval`.
+- **Ask first.** The yes covers destroying everything in `rg-fwa-foundry`, including the
+  smart-detection alert rule and action group that Application Insights made there outside
+  Terraform; purging the soft-deleted Foundry resource; and deleting the four `FWA_*` secrets in
+  `live-eval`.
 - **Estimate:** $0.
 
 In WSL:
 
-```bash
-az account show
-cd /mnt/<drive>/<path-to-clone>/infra/foundry
-export TF_DATA_DIR="$HOME/tfdata/fwa-foundry" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
-terraform plan -destroy -out=tfplan
-```
+1. Check the sign-in, and keep the account's name in a shell variable for the purge check:
 
-**Expected:** `Plan: 0 to add, 0 to change, 16 to destroy.`: the same 16 addresses as in 4.3,
-each `will be destroyed`. **Stop if** it shows anything else. Then:
+   ```bash
+   az account show
+   acct=$(az cognitiveservices account list --resource-group rg-fwa-foundry --query "[0].name" -o tsv)
+   ```
 
-```bash
-terraform apply tfplan
-rm tfplan
-```
+   **Expected:** the personal account. **Stop on a work account.**
 
-**Expected:** `Apply complete! Resources: 0 added, 0 changed, 16 destroyed.` The provider purges the
-Foundry resource on destroy (`purge_soft_delete_on_destroy = true`).
+2. See what is in the group, Terraform's or not:
 
-**Purge check:**
+   ```bash
+   az resource list --resource-group rg-fwa-foundry --query "[].type" -o tsv | sort | uniq -c
+   ```
 
-```bash
-az cognitiveservices account list-deleted --query "[?tags.project=='foundry-workshop-agent'].{name:name, location:location}" -o table
-```
+   **Expected:** the types of the stack's resources, plus a smart-detector alert rule
+   (`microsoft.alertsmanagement/smartDetectorAlertRules`) and, usually, an action group
+   (`microsoft.insights/actiongroups`). Application Insights created those; Terraform does not own
+   them. The provider is set to delete the group with whatever is in it
+   (`prevent_deletion_if_contains_resources = false` in `infra/foundry/versions.tf`), so they go with
+   it. Anything else is not this stack's: **stop** and bring it to the owner.
 
-**Expected:** an empty table. If an account is listed (a destroy that failed part-way), purge it by
-the name the table shows:
+3. Plan the destroy, and read it:
 
-```bash
-az cognitiveservices account purge --name <account> --resource-group rg-fwa-foundry --location eastus2
-```
+   ```bash
+   cd /mnt/<drive>/<path-to-clone>/infra/foundry
+   export TF_DATA_DIR="$HOME/tfdata/fwa-foundry" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+   terraform plan -destroy -out=tfplan
+   terraform show -no-color tfplan | grep -E '^  # '
+   ```
 
-**Confirm that the resource group is gone:**
+   **Expected:** `Plan: 0 to add, 0 to change, 16 to destroy.`: the same 16 addresses as in 4.3,
+   each `will be destroyed`. **Stop if** it shows anything else.
 
-```bash
-az group exists --name rg-fwa-foundry
-```
+4. Apply it:
 
-**Expected:** `false`.
+   ```bash
+   terraform apply tfplan
+   rm tfplan
+   ```
 
-Then delete the secrets that now point at nothing:
+   **Expected:** `Apply complete! Resources: 0 added, 0 changed, 16 destroyed.` The provider purges
+   the Foundry resource on destroy (`purge_soft_delete_on_destroy = true`). If the apply stops at the
+   resource group anyway ("still contains Resources"), list them as in item 2, bring them to the
+   owner, and do not delete them by hand without a yes for each.
 
-```powershell
-'FWA_PROJECT_ENDPOINT','FWA_RESOURCE_ENDPOINT','FWA_GPT_DEPLOYMENT','FWA_CLAUDE_DEPLOYMENT' | ForEach-Object { gh secret delete $_ --env live-eval }
-gh secret list --env live-eval
-```
+5. **Purge check,** by the name kept in item 1, not by tags (the deleted-accounts list may not
+   return them):
 
-**Expected:** only the three `AZURE_*` secrets are left.
+   ```bash
+   az cognitiveservices account list-deleted --query "[?name=='$acct'] | length(@)" -o tsv
+   az cognitiveservices account list-deleted --query "length(@)" -o tsv
+   ```
+
+   **Expected:** `0`, then the number of soft-deleted accounts that belong to other work (normally
+   `0`). If the first is not `0` (a destroy that failed part-way), purge it:
+
+   ```bash
+   az cognitiveservices account purge --name "$acct" --resource-group rg-fwa-foundry --location eastus2
+   az cognitiveservices account list-deleted --query "[?name=='$acct'] | length(@)" -o tsv
+   unset acct
+   ```
+
+   **Expected:** the second command prints `0`.
+
+6. **Confirm that the resource group is gone:**
+
+   ```bash
+   az group exists --name rg-fwa-foundry
+   az resource list --resource-group rg-fwa-foundry -o tsv 2>&1 | head -1
+   ```
+
+   **Expected:** `false`, then an error that the resource group could not be found. **Stop if** it
+   is `true`: list what is left, as in item 2, and bring it to the owner.
+
+   The Log Analytics workspace stays soft-deleted for 14 days. It does not bill, holds no name a new
+   apply needs (the suffix is new each time), and is not a failed destroy.
+
+7. Delete the secrets that now point at nothing, from Windows:
+
+   ```powershell
+   'FWA_PROJECT_ENDPOINT','FWA_RESOURCE_ENDPOINT','FWA_GPT_DEPLOYMENT','FWA_CLAUDE_DEPLOYMENT' | ForEach-Object { gh secret delete $_ --env live-eval }
+   gh secret list --env live-eval
+   ```
+
+   **Expected:** only the three `AZURE_*` secrets are left.
 
 ### 9.2 Destroy the bootstrap stack (optional, its own Ask first)
 
@@ -1207,25 +1281,48 @@ gh secret list --env live-eval
   `AZURE_*` secrets. Only after 9.1.
 - **Estimate:** $0.
 
-```bash
-cd /mnt/<drive>/<path-to-clone>/infra/bootstrap
-export TF_DATA_DIR="$HOME/tfdata/fwa-bootstrap"
-terraform plan -destroy -out=tfplan
-terraform apply tfplan
-rm tfplan
-az group exists --name rg-fwa-bootstrap
-```
+In WSL:
 
-**Expected:** `Plan: 0 to add, 0 to change, 8 to destroy.`, then `Apply complete! ... 8 destroyed.`,
-then `false`.
+1. Check the sign-in, and that 9.1 is done:
 
-The Entra application goes to Entra's deleted items for 30 days, where
-`az ad app list-deleted --query "[?displayName=='foundry-workshop-agent-live-eval'].displayName" -o tsv`
-shows it. Removing it for good is the owner's own action, in the portal. Then delete the secrets:
+   ```bash
+   az account show
+   az group exists --name rg-fwa-foundry
+   ```
 
-```powershell
-'AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID' | ForEach-Object { gh secret delete $_ --env live-eval }
-```
+   **Expected:** the personal account (**stop on a work account**), then `false`. **Stop if** it is
+   `true`: this stack holds the foundry stack's state.
+
+2. Plan the destroy, and read it:
+
+   ```bash
+   cd /mnt/<drive>/<path-to-clone>/infra/bootstrap
+   export TF_DATA_DIR="$HOME/tfdata/fwa-bootstrap" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+   terraform plan -destroy -out=tfplan
+   terraform show -no-color tfplan | grep -E '^  # '
+   ```
+
+   **Expected:** `Plan: 0 to add, 0 to change, 8 to destroy.`: the same 8 addresses as in 3.2,
+   each `will be destroyed`. **Stop if** it shows anything else.
+
+3. Apply it, and confirm the group is gone:
+
+   ```bash
+   terraform apply tfplan
+   rm tfplan
+   az group exists --name rg-fwa-bootstrap
+   ```
+
+   **Expected:** `Apply complete! Resources: 0 added, 0 changed, 8 destroyed.`, then `false`.
+
+4. The Entra application goes to Entra's deleted items for 30 days, where
+   `az ad app list-deleted --query "[?displayName=='foundry-workshop-agent-live-eval'].displayName" -o tsv`
+   shows it. Removing it for good is the owner's own action, in the portal. Then delete the
+   secrets, from Windows:
+
+   ```powershell
+   'AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID' | ForEach-Object { gh secret delete $_ --env live-eval }
+   ```
 
 ---
 
@@ -1277,7 +1374,7 @@ identifiers, yes or no.
 | Result names and score scales: `tool_call_accuracy`, `task_adherence`, `intent_resolution` | 5.6 | |
 | No bare resource name or other identifier in the smoke outputs | 5.7 | |
 | The agent version stays the same across starts | 6.1 | |
-| The live run's mask step (runner's Python) and `azure/login` v3.1.0 | 8.5 | |
+| The live run's mask step (runner's Python) and `azure/login` v3.1.0 | 8.4 | |
 
 ## Freeze log
 

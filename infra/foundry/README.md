@@ -142,6 +142,11 @@ assignments, and nothing else.
 terraform destroy
 ```
 
+Application Insights creates a smart-detection alert rule and an action group in `rg-fwa-foundry`,
+outside Terraform. The group holds this stack only, so the provider is set to delete it with whatever
+is in it (`prevent_deletion_if_contains_resources = false`); without that, destroy would stop at the
+group.
+
 A destroyed Foundry resource is only soft-deleted: it keeps its name, and its deployments' quota,
 for up to 48 hours. The provider is set to purge it on destroy
 (`purge_soft_delete_on_destroy = true`). If an account is ever left soft-deleted anyway (a destroy

@@ -178,3 +178,78 @@ def test_the_scan_imports_only_the_standard_library():
     modules = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     modules |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
     assert modules - {"__future__"} <= set(sys.stdlib_module_names)
+
+
+# A connection string's region labels and generic Azure suffixes are not identifiers: the report's
+# price note names the region (eastus2), and must not be a finding.
+REGIONAL_CONNECTION_STRING = (
+    "InstrumentationKey=00000000-0000-0000-0000-000000000000;"
+    "IngestionEndpoint=https://eastus2-0.in.applicationinsights.azure.com/;"
+    "LiveEndpoint=https://eastus2.livediagnostics.monitor.azure.com/;"
+    "ApplicationId=11111111-1111-1111-1111-111111111111;"
+    "Location=eastus2;"
+    "EndpointSuffix=applicationinsights.azure.com"
+)
+
+
+def test_a_connection_strings_region_labels_and_generic_suffixes_are_not_literals():
+    values = {v for _, v in scan.literals(["C"], {"C": REGIONAL_CONNECTION_STRING})}
+
+    assert not {"eastus2", "eastus2-0", "applicationinsights.azure.com"} & values
+    # What does identify the resource is kept.
+    assert {"00000000-0000-0000-0000-000000000000", "11111111-1111-1111-1111-111111111111",
+            "eastus2-0.in.applicationinsights.azure.com", "eastus2.livediagnostics.monitor.azure.com"} <= values
+
+
+@pytest.mark.parametrize("label", ["westeurope-5", "westus-0", "australiaeast", "southeastasia", "uksouth", "centralus", "swedencentral"])
+def test_any_region_label_of_a_connection_strings_host_is_skipped(label):
+    values = {v for _, v in scan.literals(["C"], {"C": f"InstrumentationKey=k;IngestionEndpoint=https://{label}.in.applicationinsights.azure.com/"})}
+
+    assert label not in values
+    assert f"{label}.in.applicationinsights.azure.com" in values
+
+
+def test_a_connection_strings_host_label_that_is_not_a_region_is_kept():
+    values = {v for _, v in scan.literals(["C"], {"C": "InstrumentationKey=k;IngestionEndpoint=https://appi-z9y8x7.in.applicationinsights.azure.com/"})}
+
+    assert "appi-z9y8x7" in values
+
+
+def test_a_report_naming_the_region_passes_with_the_connection_string_as_a_literal(tmp_path, capsys):
+    (tmp_path / "report.md").write_text("Prices read 2026-10-04 (Global Standard, eastus2).\nRegion: eastus2-0\n", encoding="utf-8")
+
+    assert scan.main([str(tmp_path), "--literal-env", "C"], environ={"C": REGIONAL_CONNECTION_STRING}) == 0
+
+
+@pytest.mark.parametrize("leak", [
+    "key 00000000-0000-0000-0000-000000000000",
+    "app 11111111-1111-1111-1111-111111111111",
+    "sent to eastus2-0.in.applicationinsights.azure.com",
+])
+def test_the_connection_strings_real_identifiers_still_fail(tmp_path, leak):
+    (tmp_path / "t.json").write_text(leak, encoding="utf-8")
+
+    assert scan.main([str(tmp_path), "--literal-env", "C"], environ={"C": REGIONAL_CONNECTION_STRING}) == 1
+
+
+def test_the_connection_string_s_literal_finding_is_by_value_not_only_by_pattern(tmp_path, capsys):
+    (tmp_path / "t.json").write_text("sent to EASTUS2-0.IN.APPLICATIONINSIGHTS.AZURE.COM", encoding="utf-8")
+
+    scan.main([str(tmp_path), "--literal-env", "C"], environ={"C": REGIONAL_CONNECTION_STRING})
+
+    assert "the value of C" in capsys.readouterr().err
+
+
+def test_mask_skips_a_connection_strings_region_labels(capsys):
+    assert scan.main(["--mask", "--literal-env", "C"], environ={"C": REGIONAL_CONNECTION_STRING}) == 0
+
+    masked = {line.removeprefix("::add-mask::") for line in capsys.readouterr().out.splitlines()}
+    assert not {"eastus2", "eastus2-0", "applicationinsights.azure.com"} & masked
+    assert "00000000-0000-0000-0000-000000000000" in masked
+
+
+def test_an_endpoints_resource_name_is_still_a_literal_even_if_it_looked_like_a_region():
+    # Only a connection string's labels are skipped: an endpoint's first label is its resource name.
+    values = {v for _, v in scan.literals(["E"], {"E": "https://eastwing.services.ai.azure.com/"})}
+
+    assert "eastwing" in values

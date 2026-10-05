@@ -10,7 +10,8 @@ tokens, JWTs, URLs, ARM paths, Azure and Anthropic hosts, emails and GUIDs; and 
 connection strings and key-shaped values. Each --literal-env names an environment variable whose
 value (a secret of the workflow's environment) must not appear, nor, for an endpoint, its host or
 resource name: a resource name has no shape a pattern could catch. A connection string's values
-count one by one, with the hosts and resource names in them.
+count one by one, with the hosts and resource names in them, except its region labels (eastus2,
+eastus2-0) and generic suffixes, which identify nothing.
 
 --mask scans nothing: it prints `::add-mask::<value>` for each of those values, so GitHub masks
 them in every later line of the job log. GitHub masks a secret's whole value only, never the host
@@ -66,17 +67,36 @@ def findings_in(text: str) -> list[tuple[int, str]]:
     return found
 
 
+# An Azure region as a host label or setting: eastus2, westeurope-5, australiaeast, uksouth. Every
+# region's name holds a compass word. Applied only to what a connection string gives: there, the
+# region names the shared regional ingestion host, not the owner's resource, and every report names
+# it (the price note's "Global Standard, eastus2").
+_REGION_LABEL = re.compile(r"[a-z]*(?:east|west|north|south|central)[a-z]*\d*(?:-\d+)?", re.IGNORECASE)
+
+# A connection-string value that is a bare domain, such as EndpointSuffix=applicationinsights.azure.com:
+# a generic Azure suffix, the same for everyone. A URL's host is not one of these and is kept.
+_BARE_DOMAIN = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", re.IGNORECASE)
+
+
 def _parts(value: str) -> list[str]:
-    """The value; each value of a `Key=value;...` connection string; each URL's host and the host's first label."""
+    """The value; each value of a `Key=value;...` connection string; each URL's host and the host's first label.
+
+    From a connection string, a region label (as a value or a host's first label) and a bare-domain
+    value are left out: they identify nothing, and would make every report naming the region a finding.
+    The instrumentation key, the application id and the ingestion and live hosts are kept.
+    """
     parts = [value]
-    if "=" in value and "://" not in value.split("=", 1)[0]:
-        parts += [p.split("=", 1)[1].strip() for p in value.split(";") if "=" in p]
+    connection_string = "=" in value and "://" not in value.split("=", 1)[0]
+    if connection_string:
+        settings = [p.split("=", 1)[1].strip() for p in value.split(";") if "=" in p]
+        parts += [s for s in settings if not (_REGION_LABEL.fullmatch(s) or _BARE_DOMAIN.fullmatch(s))]
     for part in list(parts):
         if "://" in part and urlparse(part).hostname:
             # The host as given and in lower case: masking is case-sensitive, and urlparse lowers it.
             given = part.split("://", 1)[1].split("/", 1)[0].split(":", 1)[0]
             for host in (given, given.lower()):
-                parts += [host, host.split(".")[0]]
+                label = host.split(".")[0]
+                parts += [host] if connection_string and _REGION_LABEL.fullmatch(label) else [host, label]
     return parts
 
 

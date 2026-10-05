@@ -176,6 +176,19 @@ public sealed partial class StaticInfraTests
     }
 
     [Fact]
+    public void Foundry_destroy_deletes_its_group_with_what_Application_Insights_made_outside_Terraform()
+    {
+        // Application Insights creates a smart-detection alert rule and an action group in its group,
+        // which Terraform does not own; with the provider's default, destroy stops at the group.
+        var foundry = File.ReadAllText(Path.Combine(RepoPaths.Infra, "foundry", "versions.tf"));
+        var bootstrap = File.ReadAllText(Path.Combine(RepoPaths.Infra, "bootstrap", "versions.tf"));
+
+        Assert.Matches(@"(?s)features\s*\{.*?resource_group\s*\{\s*prevent_deletion_if_contains_resources\s*=\s*false\s*\}", foundry);
+        // The bootstrap's group holds the state account: it keeps the provider's guard.
+        Assert.DoesNotMatch(@"prevent_deletion_if_contains_resources\s*=\s*false", bootstrap);
+    }
+
+    [Fact]
     public void There_is_exactly_one_federated_credential_and_it_names_the_environment()
     {
         var credentials = InfraFiles("*.tf")

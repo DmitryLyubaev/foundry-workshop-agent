@@ -26,6 +26,13 @@ provider "azurerm" {
   resource_provider_registrations = "none"
 
   features {
+    # Application Insights creates a smart-detection alert rule and an action group in this group,
+    # outside Terraform; with the default guard, destroy would stop at the group. The group holds
+    # this stack only, so destroy deletes it with whatever is in it.
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+
     # A destroyed account stays soft-deleted, holding its name and its quota for up to 48 hours,
     # unless it is purged.
     cognitive_account {
