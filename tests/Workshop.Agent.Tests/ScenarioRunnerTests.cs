@@ -355,6 +355,29 @@ public sealed class ScenarioRunnerTests
     }
 
     [Fact]
+    public async Task Transcript_names_the_engines_deployment_and_agent_version()
+    {
+        // A real engine's transcript says which deployment it called and which prompt agent version it ran.
+        using var output = TempRun.Create();
+        var runner = new ScenarioRunner(
+            AppProcess.FindAppExe(),
+            (s, run) => new ChatClientEngine("gpt", "gpt-5.6-luna", new ScriptedChatClient(ScenarioSet.ScriptFor(s.Id, "correct")), run.Budget, run.TimeLimit, run)
+            {
+                Deployment = "gpt-5.6-luna",
+                AgentVersion = "3",
+            },
+            ScenarioRunner.GateFor);
+
+        var transcript = await runner.RunAsync(ScenarioSet.Get("s05"), 1, output.Directory, Cancel);
+
+        Assert.Equal("gpt-5.6-luna", transcript.Deployment);
+        Assert.Equal("3", transcript.AgentVersion);
+        using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(output.Directory, "s05.gpt.p1.json")));
+        Assert.Equal("gpt-5.6-luna", json.RootElement.GetProperty("deployment").GetString());
+        Assert.Equal("3", json.RootElement.GetProperty("agentVersion").GetString());
+    }
+
+    [Fact]
     public async Task Transcript_has_every_field()
     {
         using var output = TempRun.Create();
@@ -367,13 +390,16 @@ public sealed class ScenarioRunnerTests
         using var json = JsonDocument.Parse(File.ReadAllBytes(file));
         var root = json.RootElement;
         Assert.Equal(
-            ["scenarioId", "pass", "engine", "model", "task", "instructionsSha256", "settingsSha256", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
+            ["scenarioId", "pass", "engine", "model", "deployment", "agentVersion", "task", "instructionsSha256", "settingsSha256", "outcome", "infraError", "infraMessage", "calls", "tools", "finalReply", "gateViolations", "check", "success", "ms", "startedAt", "error"],
             root.EnumerateObject().Select(p => p.Name));
 
         Assert.Equal("s05", root.GetProperty("scenarioId").GetString());
         Assert.Equal(3, root.GetProperty("pass").GetInt32());
         Assert.Equal("fake", root.GetProperty("engine").GetString());
         Assert.Equal(FakeEngine.Model, root.GetProperty("model").GetString());
+        // The fake engine has no deployment and no agent version.
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("deployment").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("agentVersion").ValueKind);
         Assert.Equal(ScenarioSet.Get("s05").Task, root.GetProperty("task").GetString());
         Assert.Equal(AgentInstructions.Sha256, root.GetProperty("instructionsSha256").GetString());
         Assert.Matches("^[0-9a-f]{64}$", AgentInstructions.Sha256);

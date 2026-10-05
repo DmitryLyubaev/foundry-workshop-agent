@@ -14,6 +14,21 @@
          Microsoft.Extensions.AI does. 10.10.1 is the latest; Microsoft.Extensions.AI has no 10.10.1. -->
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.1" />
   </ItemGroup>
+  <ItemGroup Label="Engines">
+    <!-- Prompt agent versions and the project's Responses client (Foundry Agent Service, Responses API). -->
+    <PackageVersion Include="Azure.AI.Projects" Version="2.0.1" />
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <!-- 10.6.0, not the latest: Azure.AI.Extensions.OpenAI 2.0.0 (under Azure.AI.Projects 2.0.1) calls a
+         ResponsesClient constructor that OpenAI 2.11.0 removed, so OpenAI stays at 2.10.0, the newest
+         without that break, and 10.6.0 is the newest Microsoft.Extensions.AI.OpenAI built on it. -->
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
+    <!-- Not referenced directly: pinned for the reason above. -->
+    <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <!-- Claude in Foundry. Anthropic stays at the version Anthropic.Foundry 0.7.1 is built on: the
+         Foundry client sets members of the Anthropic client that are internal, which may change. -->
+    <PackageVersion Include="Anthropic" Version="12.31.0" />
+    <PackageVersion Include="Anthropic.Foundry" Version="0.7.1" />
+  </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>

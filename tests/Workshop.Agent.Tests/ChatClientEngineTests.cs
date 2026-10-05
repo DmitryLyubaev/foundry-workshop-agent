@@ -168,7 +168,8 @@ public sealed class ChatClientEngineTests
 
         Assert.Equal("truncated", EngineOutcome.Truncated);
         Assert.Equal(EngineOutcome.Truncated, result.Outcome);
-        Assert.Null(result.FinalReply);
+        // The partial text is kept, for the write-up: the run is still not a success.
+        Assert.Equal("There are 4 laptop bat", result.FinalReply);
         Assert.Null(result.Error);
         Assert.Equal(["tool_calls", "length"], result.Calls.Select(c => c.FinishReason));
     }
@@ -361,9 +362,14 @@ public sealed class ChatClientEngineTests
     [InlineData("client-403")]
     [InlineData("client-500")]
     [InlineData("client-503")]
-    [InlineData("derived-client-502")]
+    [InlineData("request-failed-502")]
     [InlineData("client-0-wrapping-http")]
     [InlineData("wrapped-auth")]
+    [InlineData("anthropic-401")]
+    [InlineData("anthropic-403")]
+    [InlineData("anthropic-529")]
+    [InlineData("anthropic-io")]
+    [InlineData("timeout")]
     public async Task Service_failure_of_the_model_is_service_error(string kind)
     {
         var failure = ServiceFailure(kind);
@@ -381,6 +387,8 @@ public sealed class ChatClientEngineTests
     [Theory]
     [InlineData("client-400")]
     [InlineData("client-404")]
+    [InlineData("anthropic-400")]
+    [InlineData("anthropic-404")]
     [InlineData("other")]
     public async Task Other_failures_of_the_model_are_engine_error(string kind)
     {
@@ -391,6 +399,18 @@ public sealed class ChatClientEngineTests
 
         Assert.Equal(EngineOutcome.EngineError, result.Outcome);
         Assert.Equal($"{failure.GetType().FullName}: {failure.Message}", result.Error);
+    }
+
+    [Fact]
+    public async Task A_request_the_content_filter_refused_is_content_filtered()
+    {
+        var engine = new ChatClientEngine("fake", "failing", new FailingAfterOneCallModel(new ContentFilteredException("content_filter", "The prompt was filtered.")), new ToolBudget(), FiveMinutes);
+
+        var result = await engine.RunAsync("Look.", new StubTools().Functions, Cancel);
+
+        Assert.Equal(EngineOutcome.ContentFiltered, result.Outcome);
+        Assert.Null(result.FinalReply);
+        Assert.Single(result.Calls);
     }
 
     [Fact]
@@ -608,22 +628,30 @@ public sealed class ChatClientEngineTests
         return json.RootElement.GetProperty("outcome").GetString();
     }
 
-    /// <summary>The failures a model's SDK may throw, by name: the SDK types are stood in for in ServiceExceptionDoubles.cs.</summary>
+    /// <summary>The failures the model SDKs throw, as their own types.</summary>
     private static Exception ServiceFailure(string kind) => kind switch
     {
         "http" => new HttpRequestException("No such host is known."),
         "auth-failed" => new Azure.Identity.AuthenticationFailedException("The token could not be acquired."),
         "credential-unavailable" => new Azure.Identity.CredentialUnavailableException("No credential is available."),
-        "client-401" => new System.ClientModel.ClientResultException(401, "Unauthorized."),
-        "client-403" => new System.ClientModel.ClientResultException(403, "Forbidden."),
-        "client-500" => new System.ClientModel.ClientResultException(500, "Internal server error."),
-        "client-503" => new System.ClientModel.ClientResultException(503, "Service unavailable."),
-        "derived-client-502" => new DerivedClientResultException(502, "Bad gateway."),
+        "client-401" => new System.ClientModel.ClientResultException("Unauthorized.", new StatusResponse(401)),
+        "client-403" => new System.ClientModel.ClientResultException("Forbidden.", new StatusResponse(403)),
+        "client-500" => new System.ClientModel.ClientResultException("Internal server error.", new StatusResponse(500)),
+        "client-503" => new System.ClientModel.ClientResultException("Service unavailable.", new StatusResponse(503)),
+        "request-failed-502" => new Azure.RequestFailedException(502, "Bad gateway."),
         // System.ClientModel's status is 0 when no answer came: the network failure is its inner exception.
-        "client-0-wrapping-http" => new System.ClientModel.ClientResultException(0, "The service did not answer.", new HttpRequestException("The connection was reset.")),
+        "client-0-wrapping-http" => new System.ClientModel.ClientResultException("The service did not answer.", null, new HttpRequestException("The connection was reset.")),
         "wrapped-auth" => new InvalidOperationException("The agent could not call the model.", new Azure.Identity.AuthenticationFailedException("The token has expired.")),
-        "client-400" => new System.ClientModel.ClientResultException(400, "Bad request."),
-        "client-404" => new System.ClientModel.ClientResultException(404, "The deployment does not exist."),
+        "anthropic-401" => new Anthropic.Exceptions.AnthropicUnauthorizedException { StatusCode = System.Net.HttpStatusCode.Unauthorized, ResponseBody = "{}" },
+        "anthropic-403" => new Anthropic.Exceptions.AnthropicForbiddenException { StatusCode = System.Net.HttpStatusCode.Forbidden, ResponseBody = "{}" },
+        "anthropic-529" => new Anthropic.Exceptions.Anthropic5xxException { StatusCode = (System.Net.HttpStatusCode)529, ResponseBody = "{}" },
+        "anthropic-io" => new Anthropic.Exceptions.AnthropicIOException("I/O exception", new HttpRequestException("The connection was reset.")),
+        // A client's own time limit on a call, with the caller's token not cancelled.
+        "timeout" => new TaskCanceledException("The request was canceled due to the configured timeout.", new TimeoutException("The operation timed out.")),
+        "client-400" => new System.ClientModel.ClientResultException("Bad request.", new StatusResponse(400)),
+        "client-404" => new System.ClientModel.ClientResultException("The deployment does not exist.", new StatusResponse(404)),
+        "anthropic-400" => new Anthropic.Exceptions.AnthropicBadRequestException { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseBody = "{}" },
+        "anthropic-404" => new Anthropic.Exceptions.AnthropicNotFoundException { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseBody = "{}" },
         "other" => new InvalidOperationException("The model's answer could not be read."),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
@@ -633,6 +661,28 @@ public sealed class ChatClientEngineTests
         waits.Add(wait);
         return Task.CompletedTask;
     };
+
+    /// <summary>An HTTP answer with only a status, for System.ClientModel's exception.</summary>
+    private sealed class StatusResponse(int status) : System.ClientModel.Primitives.PipelineResponse
+    {
+        public override int Status => status;
+
+        public override string ReasonPhrase => "";
+
+        public override Stream? ContentStream { get; set; }
+
+        public override BinaryData Content => BinaryData.Empty;
+
+        protected override System.ClientModel.Primitives.PipelineResponseHeaders HeadersCore => throw new NotSupportedException();
+
+        public override BinaryData BufferContent(CancellationToken cancellationToken = default) => BinaryData.Empty;
+
+        public override ValueTask<BinaryData> BufferContentAsync(CancellationToken cancellationToken = default) => new(BinaryData.Empty);
+
+        public override void Dispose()
+        {
+        }
+    }
 
     /// <summary>A model call that never answers: it ignores cancellation, or turns it into its own exception.</summary>
     private sealed class HungModel(bool throwWhenCancelled) : IChatClient

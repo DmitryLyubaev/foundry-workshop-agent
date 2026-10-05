@@ -8,10 +8,11 @@ that runs the same agent on GPT and on Claude in Microsoft Foundry, and measure 
 of scenarios. The design is in
 [docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md](docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md).
 
-**Status: plan 2 of 3.** The app, its storage and rules, the describer, the endpoint and its
+**Status: plan 3 of 3, under way.** The app, its storage and rules, the describer, the endpoint and its
 lock-down (plan 1), and the agent client with its 20 scenarios, run on a scripted fake model
-(plan 2), are built and tested. The Azure study (plan 3) is not built yet. Nothing here uses
-Azure, and every record in the database is made up.
+(plan 2), are built and tested. The Azure study (plan 3) is under way: the GPT and Claude engines
+are built and tested offline, against fake services; nothing has been run against Azure yet. Every
+record in the database is made up.
 
 ## Run the app
 
@@ -206,7 +207,22 @@ destructive: it is the normal end of a job, reached only from `ready`.
 `src/Workshop.Agent` drives the app through six tools over the endpoint (`list_screens`,
 `describe_screen`, `open_screen`, `set_field`, `select_row`, `press_button`). A press of a button
 the current screen flags destructive needs an approval first; a denied press never reaches the app.
-Plan 2's only engine is `fake`: a scripted model, offline and free.
+There are three engines, each the same loop with the same instructions, tools and settings:
+
+- `fake`: a scripted model, offline and free.
+- `gpt`: GPT as a Foundry Agent Service prompt agent. Before the first run, the agent's latest
+  version is reused if it holds exactly the code's instructions and tool schemas, or a new version
+  is made; the version is read back, and a run never starts on one that differs from the code. Each
+  request names that version and carries the output-token limit.
+- `claude`: Claude deployed in Foundry, through the Anthropic SDK, with the instructions, tools and
+  settings on each request.
+
+Both real engines sign in with the Azure CLI (no key anywhere), and the SDKs' own retries are off:
+the engine's 60-second throttling budget is the only retry. They read Foundry's settings from
+`--project-endpoint`, `--resource-endpoint`, `--gpt-deployment`, `--claude-deployment` and
+`--agent-name`, or else from `FWA_PROJECT_ENDPOINT`, `FWA_RESOURCE_ENDPOINT`, `FWA_GPT_DEPLOYMENT`,
+`FWA_CLAUDE_DEPLOYMENT` and `FWA_AGENT_NAME` (default `fwa-workshop-agent`); a missing one is named,
+and nothing starts.
 
 ```
 dotnet run --project src/Workshop.Agent -- run --engine fake --scenarios scenarios --script-dir tests/Workshop.Agent.Tests/Scripts [--only s05] [--passes 3] [--out <dir>]
@@ -222,13 +238,16 @@ from the app's audit log and checks the end state on the database. It writes
 instructions and of its model settings (`AgentSettings`: at most 4,096 output tokens a call, and
 each model's own default temperature, the same for every engine), the model calls and their tokens,
 every tool call with its outcome, its approval, the model call that asked for it and the result the
-model was given, the final reply, the checks, and `success`: the run completed (outcome
+model was given, the final reply (for a run cut off at the output-token limit, its partial text),
+the deployment and, for `gpt`, the agent version, the checks, and `success`: the run completed (outcome
 `completed`), every check passed and no destructive press skipped the gate. A run that hit a limit,
 was filtered, ended on an answer cut off at the output-token limit (outcome `truncated`), was
 throttled or failed is not a success, even when the database happens to be right. An app that cannot
 start, an endpoint that fails, or the model's service failing (network, credentials, or a 401, 403
 or 5xx answer: outcome `service_error`, with the model calls kept) is an infrastructure error
-(`infraError`), never a task failure. `--engine gpt` and `--engine claude` arrive in plan 3.
+(`infraError`), never a task failure. A 429 waits as the service asks, within the budget; a 400
+from the content filter ends the run `content_filtered`; any other 4xx is the model's own failure,
+`engine_error`, with the service's error code.
 
 ## Security model
 

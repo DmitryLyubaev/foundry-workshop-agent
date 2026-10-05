@@ -2,7 +2,10 @@ namespace Workshop.Agent.Engines;
 
 /// <summary>How a run ended, the model's last reply when it completed, and every model call it answered.</summary>
 /// <param name="Outcome">One of the <see cref="EngineOutcome"/> values.</param>
-/// <param name="FinalReply">The model's reply when the outcome is <see cref="EngineOutcome.Completed"/>; otherwise null.</param>
+/// <param name="FinalReply">
+/// The model's reply when the outcome is <see cref="EngineOutcome.Completed"/>; the partial text it
+/// wrote before the limit cut it off when <see cref="EngineOutcome.Truncated"/>; otherwise null.
+/// </param>
 /// <param name="Calls">The model calls the model answered, in order, whatever the outcome.</param>
 /// <param name="Error">
 /// For <see cref="EngineOutcome.EngineError"/> and <see cref="EngineOutcome.ServiceError"/>, the
@@ -22,12 +25,13 @@ public static class EngineOutcome
     /// <summary>The run's time limit passed.</summary>
     public const string TimeLimit = "time_limit";
 
-    /// <summary>The model's answer was blocked by its content filter.</summary>
+    /// <summary>The model's answer, or the request itself, was blocked by the content filter.</summary>
     public const string ContentFiltered = "content_filtered";
 
     /// <summary>
     /// The model's last answer stopped at the output-token limit (<see cref="AgentSettings.MaxOutputTokens"/>,
-    /// finish reason <c>length</c>): it gave no whole reply, so the run is not completed.
+    /// finish reason <c>length</c>): it gave no whole reply, so the run is not completed. Its partial
+    /// text is kept as the final reply, for the write-up.
     /// </summary>
     public const string Truncated = "truncated";
 

@@ -1,37 +1,49 @@
 using System.Globalization;
+using Azure.Identity;
 using Workshop.Agent.Engines;
+using Workshop.Agent.Engines.Claude;
+using Workshop.Agent.Engines.Foundry;
 using Workshop.Agent.Runner;
 using Workshop.Agent.Scenarios;
+using Workshop.Agent.Tools;
 
 namespace Workshop.Agent;
 
 /// <summary>
 /// The command line: <c>run</c> runs scenarios through the runner and writes their transcripts;
 /// <c>scenarios check</c> reads a scenario set and reports its first problem. Exit codes: 0 done;
-/// 1 a run met an infrastructure error, the scenario set is invalid, the app is missing, or the
-/// engine (gpt, claude) is not built yet; 2 a bad command line.
+/// 1 a run met an infrastructure error, the scenario set is invalid, the app is missing, or the GPT
+/// prompt agent could not be made to hold the code's definition; 2 a bad command line, or a Foundry
+/// setting missing.
 /// </summary>
 internal static class Program
 {
     public const string Usage = """
         Usage:
           Workshop.Agent run --engine fake|gpt|claude --scenarios <dir> [--only <id>] [--passes <n>] [--out <dir>] [--script-dir <dir>] [--app <exe>]
+                             [--project-endpoint <url>] [--resource-endpoint <url>] [--gpt-deployment <name>] [--claude-deployment <name>] [--agent-name <name>]
           Workshop.Agent scenarios check <dir>
 
-          --engine      fake runs each scenario's scripted model from <script-dir>/<id>.correct.json.
+          --engine      fake runs each scenario's scripted model from <script-dir>/<id>.correct.json;
+                        gpt runs the Foundry prompt agent, claude runs Claude in Foundry, both signed in with the Azure CLI.
           --scenarios   the directory of scenario files, <id>.json.
           --only        run this scenario only.
           --passes      passes per scenario (default 1).
           --out         where transcripts go (default %LOCALAPPDATA%\FoundryWorkshopAgent\transcripts\<timestamp>).
           --script-dir  the fake engine's scripts.
           --app         Workshop.App.exe (default: the one built beside this solution).
+
+          gpt and claude read Foundry's settings from these options, or else from FWA_PROJECT_ENDPOINT,
+          FWA_RESOURCE_ENDPOINT, FWA_GPT_DEPLOYMENT, FWA_CLAUDE_DEPLOYMENT and FWA_AGENT_NAME
+          (default fwa-workshop-agent).
         """;
 
     private const int Done = 0;
     private const int Failed = 1;
     private const int BadCommandLine = 2;
 
-    private static readonly string[] RunOptions = ["--engine", "--scenarios", "--only", "--passes", "--out", "--script-dir", "--app"];
+    private static readonly string[] RunOptions =
+        ["--engine", "--scenarios", "--only", "--passes", "--out", "--script-dir", "--app", .. FoundryOptions.Settings.Select(s => s.Option)];
 
     public static async Task<int> Main(string[] args)
     {
@@ -58,12 +70,16 @@ internal static class Program
         }
     }
 
-    internal static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, CancellationToken ct)
+    internal static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, CancellationToken ct) =>
+        RunAsync(args, output, error, Environment.GetEnvironmentVariable, ct);
+
+    /// <summary>For tests: <paramref name="environment"/> in place of the process's environment variables.</summary>
+    internal static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, Func<string, string?> environment, CancellationToken ct)
     {
         switch (args)
         {
             case ["run", .. var options]:
-                return await RunScenariosAsync(options, output, error, ct).ConfigureAwait(false);
+                return await RunScenariosAsync(options, output, error, environment, ct).ConfigureAwait(false);
             case ["scenarios", "check", var dir]:
                 return await CheckScenariosAsync(dir, output, error).ConfigureAwait(false);
             default:
@@ -87,31 +103,40 @@ internal static class Program
         }
     }
 
-    private static async Task<int> RunScenariosAsync(string[] args, TextWriter output, TextWriter error, CancellationToken ct)
+    private static async Task<int> RunScenariosAsync(string[] args, TextWriter output, TextWriter error, Func<string, string?> environment, CancellationToken ct)
     {
-        if (ReadOptions(args) is not { } options || !options.TryGetValue("--engine", out var engineName))
+        if (ReadOptions(args) is not { } options
+            || !options.TryGetValue("--engine", out var engineName)
+            || engineName is not (FakeEngine.Name or GptEngineFactory.Name or ClaudeEngineFactory.Name)
+            || !options.TryGetValue("--scenarios", out var scenarioDir)
+            || !TryPasses(options, out var passes))
         {
             await error.WriteLineAsync(Usage).ConfigureAwait(false);
             return BadCommandLine;
         }
 
-        // Before the other options: whatever else is given, these engines cannot run yet.
-        if (engineName is "gpt" or "claude")
+        // Before anything is read or started: a run that cannot reach its model does not begin.
+        string? scriptDir = null;
+        FoundryOptions? foundry = null;
+        if (engineName == FakeEngine.Name)
         {
-            await error.WriteLineAsync($"The {engineName} engine arrives in plan 3.").ConfigureAwait(false);
-            return Failed;
+            if (!options.TryGetValue("--script-dir", out scriptDir))
+            {
+                await error.WriteLineAsync("The fake engine needs --script-dir.").ConfigureAwait(false);
+                return BadCommandLine;
+            }
         }
-
-        if (!options.TryGetValue("--scenarios", out var scenarioDir) || !TryPasses(options, out var passes) || engineName != FakeEngine.Name)
+        else
         {
-            await error.WriteLineAsync(Usage).ConfigureAwait(false);
-            return BadCommandLine;
-        }
-
-        if (!options.TryGetValue("--script-dir", out var scriptDir))
-        {
-            await error.WriteLineAsync("The fake engine needs --script-dir.").ConfigureAwait(false);
-            return BadCommandLine;
+            try
+            {
+                foundry = FoundryOptions.Read(options, environment);
+            }
+            catch (FoundrySettingsException e)
+            {
+                await error.WriteLineAsync(e.Message).ConfigureAwait(false);
+                return BadCommandLine;
+            }
         }
 
         Scenario[] scenarios;
@@ -144,24 +169,38 @@ internal static class Program
             }
         }
 
-        // Every script is read before the first app starts, so a missing or broken one stops nothing half-way.
-        var scripts = new Dictionary<string, Script>(StringComparer.Ordinal);
-        foreach (var s in scenarios)
+        Func<Scenario, EngineRun, IAgentEngine> engineFor;
+        if (foundry is null)
         {
-            var path = Path.Combine(scriptDir, $"{s.Id}.correct.json");
-            try
+            if (await LoadScriptsAsync(scenarios, scriptDir!, error).ConfigureAwait(false) is not { } scripts)
             {
-                scripts[s.Id] = Script.Load(path);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException)
-            {
-                await error.WriteLineAsync($"The script '{path}' cannot be read: {e.Message}").ConfigureAwait(false);
                 return BadCommandLine;
+            }
+
+            engineFor = (s, run) => FakeEngine.Create(scripts[s.Id], run);
+        }
+        else
+        {
+            // Keyless: the Azure CLI's sign-in (az login locally, the OIDC login in CI), asked once an hour, not once a call.
+            var credential = new CachingTokenCredential(new AzureCliCredential());
+            if (engineName == ClaudeEngineFactory.Name)
+            {
+                engineFor = (_, run) => ClaudeEngineFactory.Create(foundry, run, credential);
+            }
+            else
+            {
+                if (await EnsureAgentAsync(foundry, credential, error, ct).ConfigureAwait(false) is not { } agent)
+                {
+                    return Failed;
+                }
+
+                await output.WriteLineAsync($"Prompt agent {agent.Name} version {agent.Version} holds the code's instructions and tools.").ConfigureAwait(false);
+                engineFor = (_, run) => GptEngineFactory.Create(foundry, agent, run, credential);
             }
         }
 
         var outDir = options.TryGetValue("--out", out var given) ? given : DefaultOutDir();
-        var runner = new ScenarioRunner(appExe, (s, run) => FakeEngine.Create(scripts[s.Id], run), ScenarioRunner.GateFor);
+        var runner = new ScenarioRunner(appExe, engineFor, ScenarioRunner.GateFor);
         await output.WriteLineAsync($"Transcripts go to {Path.GetFullPath(outDir)}").ConfigureAwait(false);
 
         int succeeded = 0, infraErrors = 0, runs = 0;
@@ -180,6 +219,50 @@ internal static class Program
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{succeeded} of {runs} runs succeeded; {infraErrors} infrastructure errors.")).ConfigureAwait(false);
         // A task failure is a result, not an error; a run that never got to try is.
         return infraErrors == 0 ? Done : Failed;
+    }
+
+    /// <summary>Every scenario's script, read before the first app starts, so a missing or broken one stops nothing half-way; null after reporting one.</summary>
+    private static async Task<Dictionary<string, Script>?> LoadScriptsAsync(Scenario[] scenarios, string scriptDir, TextWriter error)
+    {
+        var scripts = new Dictionary<string, Script>(StringComparer.Ordinal);
+        foreach (var s in scenarios)
+        {
+            var path = Path.Combine(scriptDir, $"{s.Id}.correct.json");
+            try
+            {
+                scripts[s.Id] = Script.Load(path);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException)
+            {
+                await error.WriteLineAsync($"The script '{path}' cannot be read: {e.Message}").ConfigureAwait(false);
+                return null;
+            }
+        }
+
+        return scripts;
+    }
+
+    /// <summary>
+    /// The GPT prompt agent's version that holds the code's instructions and tools, made or reused
+    /// before the first run (Review Focus 2); null after reporting why there is none: it drifted, or
+    /// Foundry could not be reached.
+    /// </summary>
+    private static async Task<AgentVersionRef?> EnsureAgentAsync(FoundryOptions foundry, Azure.Core.TokenCredential credential, TextWriter error, CancellationToken ct)
+    {
+        try
+        {
+            return await PromptAgentProvisioner.EnsureAsync(foundry, WorkshopTools.Declarations, credential, ct).ConfigureAwait(false);
+        }
+        catch (AgentDriftException e)
+        {
+            await error.WriteLineAsync($"{e.Message} No run starts.").ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            await error.WriteLineAsync($"The prompt agent could not be checked, so no run starts: {e.GetType().Name}: {e.Message}").ConfigureAwait(false);
+            return null;
+        }
     }
 
     private static string Line(Transcript t)

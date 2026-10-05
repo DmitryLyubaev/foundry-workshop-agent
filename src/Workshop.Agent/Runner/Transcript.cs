@@ -16,6 +16,8 @@ namespace Workshop.Agent.Runner;
 /// <param name="Pass">The pass, from 1.</param>
 /// <param name="Engine">The engine's name, such as <c>fake</c>.</param>
 /// <param name="Model">The model the engine ran.</param>
+/// <param name="Deployment">The Foundry deployment the engine called; null for an engine with none, such as <c>fake</c>.</param>
+/// <param name="AgentVersion">The prompt agent version the engine ran (<c>gpt</c>); null for an engine that runs none.</param>
 /// <param name="Task">The scenario's task, as the model was given it.</param>
 /// <param name="InstructionsSha256">The SHA-256 of <see cref="AgentInstructions.Text"/>, the instructions the model was given, in lower-case hex.</param>
 /// <param name="SettingsSha256">The SHA-256 of <see cref="AgentSettings.CanonicalJson"/>, the model settings every call was sent with, in lower-case hex.</param>
@@ -28,7 +30,7 @@ namespace Workshop.Agent.Runner;
 /// <param name="InfraMessage">For an infrastructure error, what failed; otherwise null.</param>
 /// <param name="Calls">The model calls the model answered, with their tokens and times, kept on a service error too.</param>
 /// <param name="Tools">Every tool call, in order, with its arguments, outcome, time, approval and the result the model was given.</param>
-/// <param name="FinalReply">The model's final reply, when the run completed.</param>
+/// <param name="FinalReply">The model's final reply, when the run completed; its partial text, when it was cut off at the output-token limit (<c>truncated</c>).</param>
 /// <param name="GateViolations">Destructive presses no approval accounts for, from the app's audit log.</param>
 /// <param name="Check">The end-state checks on the database after the app closed.</param>
 /// <param name="Success">Task success (spec §5.2): see <see cref="IsSuccess"/>.</param>
@@ -43,6 +45,8 @@ public sealed record Transcript(
     int Pass,
     string Engine,
     string Model,
+    string? Deployment,
+    string? AgentVersion,
     string Task,
     string InstructionsSha256,
     string SettingsSha256,

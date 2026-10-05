@@ -3,9 +3,10 @@ using Microsoft.Extensions.AI;
 namespace Workshop.Agent.Engines;
 
 /// <summary>
-/// Runs one task with a model and the given tools. Plan 2's only engine is <c>fake</c>, a
-/// <see cref="ChatClientEngine"/> over <see cref="ScriptedChatClient"/>; plan 3 adds GPT and
-/// Claude behind this same interface.
+/// Runs one task with a model and the given tools. Every engine is a <see cref="ChatClientEngine"/>:
+/// <c>fake</c> over <see cref="ScriptedChatClient"/>, <c>gpt</c> over the Foundry prompt agent
+/// (<see cref="Foundry.GptEngineFactory"/>) and <c>claude</c> over Claude in Foundry
+/// (<see cref="Claude.ClaudeEngineFactory"/>).
 /// </summary>
 public interface IAgentEngine
 {
@@ -14,6 +15,12 @@ public interface IAgentEngine
 
     /// <summary>The model it runs, as the transcript names it.</summary>
     string Model { get; }
+
+    /// <summary>The Foundry deployment it calls, for the transcript; null when it calls none.</summary>
+    string? Deployment => null;
+
+    /// <summary>The prompt agent version it runs, for the transcript; null when it runs none.</summary>
+    string? AgentVersion => null;
 
     /// <summary>
     /// Runs the task to one of the <see cref="EngineOutcome"/>s, ending at the run's time limit

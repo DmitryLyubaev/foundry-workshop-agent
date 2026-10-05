@@ -71,6 +71,14 @@ public sealed class WorkshopTools : IToolCallRecorder
 
     public IReadOnlyList<AIFunction> Functions { get; }
 
+    /// <summary>
+    /// The six tools as the model is told of them (names, descriptions and schemas) without an app:
+    /// for the GPT prompt agent's version and the freeze. They are built by the same code as every
+    /// run's tools, over a client that is never called, so the two cannot differ.
+    /// </summary>
+    public static IReadOnlyList<AIFunction> Declarations { get; } =
+        new WorkshopTools(new SurfaceClient(1, "declarations-only"), new ScriptedGate(false), new ToolBudget()).Functions;
+
     /// <summary>Every call so far, in order, including those refused by the budget or for their arguments, and calls to tools that do not exist.</summary>
     public IReadOnlyList<ToolRecord> Records
     {

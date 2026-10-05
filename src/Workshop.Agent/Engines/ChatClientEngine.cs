@@ -56,6 +56,12 @@ public sealed class ChatClientEngine : IAgentEngine
 
     public string Model { get; }
 
+    /// <summary>The Foundry deployment the engine calls, for the transcript; null for an engine with none.</summary>
+    public string? Deployment { get; init; }
+
+    /// <summary>The prompt agent version the engine runs, for the transcript; null for an engine that has none.</summary>
+    public string? AgentVersion { get; init; }
+
     public async Task<EngineResult> RunAsync(string task, IReadOnlyList<AIFunction> tools, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(task);
@@ -94,9 +100,10 @@ public sealed class ChatClientEngine : IAgentEngine
             }
 
             // The last answer stopped at the output-token limit: the loop ended because no tool call
-            // was whole, not because the model was done, so what it wrote is not its reply.
+            // was whole, not because the model was done, so the run is not completed. What it wrote
+            // is kept, for the write-up, as the partial text it is.
             return finish == ChatFinishReason.Length.Value
-                ? new EngineResult(EngineOutcome.Truncated, null, calls)
+                ? new EngineResult(EngineOutcome.Truncated, LastAnswer(response), calls)
                 : new EngineResult(EngineOutcome.Completed, LastAnswer(response), calls);
         }
         catch (ToolLimitReachedException)
@@ -106,6 +113,12 @@ public sealed class ChatClientEngine : IAgentEngine
         catch (ThrottledException)
         {
             return new EngineResult(EngineOutcome.Throttled, null, recording.Calls);
+        }
+        catch (ContentFilteredException) when (!ct.IsCancellationRequested)
+        {
+            // The service's content filter refused the request itself (an HTTP 400), rather than
+            // stopping an answer: the same outcome as a filtered answer.
+            return new EngineResult(EngineOutcome.ContentFiltered, null, recording.Calls);
         }
         catch (Exception e) when (limit.IsCancellationRequested && !ct.IsCancellationRequested && !loop.IsToolFailure(e))
         {

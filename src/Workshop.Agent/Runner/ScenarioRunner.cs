@@ -132,6 +132,8 @@ public sealed class ScenarioRunner
                 pass,
                 engine.Name,
                 engine.Model,
+                engine.Deployment,
+                engine.AgentVersion,
                 s.Task,
                 AgentInstructions.Sha256,
                 AgentSettings.Sha256,

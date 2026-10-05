@@ -8,19 +8,43 @@ public sealed class ProgramTests
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
     [Theory]
-    [InlineData("gpt", true)]
-    [InlineData("claude", true)]
-    [InlineData("gpt", false)]
-    [InlineData("claude", false)]
-    public async Task Real_engines_arrive_in_plan_3(string engine, bool withScenarios)
+    [InlineData("gpt")]
+    [InlineData("claude")]
+    public async Task Real_engines_without_their_Foundry_settings_name_the_first_missing(string engine)
     {
-        var (code, output, error) = withScenarios
-            ? await Run("run", "--engine", engine, "--scenarios", RepoPaths.Scenarios)
-            : await Run("run", "--engine", engine);
+        // No FWA_* variable and no option: nothing is read, started or called.
+        var (code, output, error) = await Run(_ => null, "run", "--engine", engine, "--scenarios", RepoPaths.Scenarios);
 
-        Assert.Equal(1, code);
+        Assert.Equal(2, code);
         Assert.Equal("", output);
-        Assert.Equal($"The {engine} engine arrives in plan 3.", error.Trim());
+        Assert.Equal("FWA_PROJECT_ENDPOINT is not set: set it, or pass --project-endpoint.", error.Trim());
+    }
+
+    [Fact]
+    public async Task Real_engines_take_their_settings_from_the_command_line_too()
+    {
+        // Every setting but the GPT deployment comes from an option: the error names the one still missing.
+        var (code, _, error) = await Run(
+            _ => null,
+            "run", "--engine", "gpt", "--scenarios", RepoPaths.Scenarios,
+            "--project-endpoint", "https://example.services.ai.azure.com/api/projects/example",
+            "--resource-endpoint", "https://example.services.ai.azure.com/",
+            "--claude-deployment", "claude-haiku-4-5");
+
+        Assert.Equal(2, code);
+        Assert.Equal("FWA_GPT_DEPLOYMENT is not set: set it, or pass --gpt-deployment.", error.Trim());
+    }
+
+    [Theory]
+    [InlineData("gpt")]
+    [InlineData("claude")]
+    public async Task Real_engines_without_scenarios_print_the_usage(string engine)
+    {
+        var (code, output, error) = await Run(_ => null, "run", "--engine", engine);
+
+        Assert.Equal(2, code);
+        Assert.Equal("", output);
+        Assert.Contains("Workshop.Agent run --engine fake|gpt|claude --scenarios <dir>", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -130,6 +154,15 @@ public sealed class ProgramTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var code = await Program.RunAsync(args, output, error, Cancel);
+        return (code, output.ToString(), error.ToString());
+    }
+
+    /// <summary>Runs the command line with <paramref name="environment"/> in place of the process's variables.</summary>
+    private static async Task<(int Code, string Output, string Error)> Run(Func<string, string?> environment, params string[] args)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var code = await Program.RunAsync(args, output, error, environment, Cancel);
         return (code, output.ToString(), error.ToString());
     }
 }
