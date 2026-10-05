@@ -78,9 +78,11 @@ The fixed names in the code (`rg-fwa-bootstrap`, `rg-fwa-foundry`, `fwa-workshop
 - **Identifiers.** Read a Terraform output on purpose, straight into an environment variable or
   `gh secret set`, never into a file. Anything that will be committed or uploaded is scanned first.
 - **`--study` rules.**
-  - Never pass `--passes` with `--study`: it runs exactly 3 passes, and refuses any other count.
+  - Never pass `--passes` or `--only` with `--study`: it runs every scenario, exactly 3 passes, and
+    refuses either option (`--frozen` runs one scenario, or any pass count).
   - `--study` renames `--out <dir>` to `<dir>-<hash12>`. Always give `--out` its value, and put
-    `--study` before it, never between `--out` and its value.
+    `--study` before it, never between `--out` and its value (an option refuses a value that starts
+    with `--`, so a slip there is a usage error, not a run).
 
 ## Window setup for agent runs (steps 5–8)
 
@@ -245,8 +247,9 @@ old freeze are not part of the study.
     (subject `repo:<owner>/<repo>:environment:live-eval`);
   - the resource group `rg-fwa-bootstrap`, the state storage account and its container, and the
     owner's data role on that container;
-  - registering the resource providers the bootstrap lists. azurerm may register them as soon as it
-    starts, at the plan, so the yes comes before the plan;
+  - registering the resource providers the bootstrap lists, `Microsoft.SaaS` and
+    `Microsoft.MarketplaceOrdering` among them (for the Claude deployment's Marketplace offer).
+    azurerm may register them as soon as it starts, at the plan, so the yes comes before the plan;
   - creating the GitHub environment `live-eval`, protecting it to `main`, and setting three of its
     secrets.
 - **Estimate:** $0 to create. The state account costs cents a month.
@@ -384,8 +387,6 @@ state. Treat it as a secret: it holds the storage account's keys, which are swit
     deployment's first apply, with the owner's organisation, country and industry in
     `modelProviderData`;
   - the resource group `rg-fwa-foundry` and everything in it (the list in 4.3);
-  - registering `Microsoft.SaaS` and `Microsoft.MarketplaceOrdering`, if 4.1 finds them not
-    registered;
   - setting four more secrets in `live-eval`;
   - after the owner reads the GPT model version, a small PR that commits it as the variable's default.
 - **Estimate:** $0 to create. Nothing bills by the hour: the resource, the project and idle
@@ -422,10 +423,11 @@ In WSL:
    az cognitiveservices usage list --location eastus2 --query "[?contains(name.value, 'GlobalStandard')].{name:name.value, used:currentValue, limit:limit}" -o table
    ```
 
-   **Expected:** the `gpt-5.6-luna` Global Standard row has `limit - used` of at least 50, the
-   `gpt_capacity` default. Claude's row, if it is listed, has room for 25, `claude_capacity`'s
-   default. **Stop if** a limit is 0 or below the capacity: lower the capacity variable in
-   `terraform.tfvars`, or ask for quota, before going on.
+   **Expected:** the `gpt-5.6-luna` Global Standard row has `limit - used` of at least 25, the
+   `capacity` default, and Claude's row, if it is listed, has room for 25 too. Both deployments take
+   the one `capacity`, so neither engine is throttled more than the other. **Stop if** a limit is 0
+   or below 25: set a lower `capacity` in `terraform.tfvars` (it lowers both), or ask for quota,
+   before going on. Write the capacity used in the [findings log](#findings-log).
 
 4. **Resource providers.** The Claude deployment goes through the Marketplace:
 
@@ -434,16 +436,10 @@ In WSL:
    az provider show --namespace Microsoft.MarketplaceOrdering --query registrationState -o tsv
    ```
 
-   **Expected:** `Registered` twice. If the final review added both to the bootstrap's provider
-   list, step 3 registered them. If either says `NotRegistered`, register it under this step's yes:
-
-   ```bash
-   az provider register --namespace Microsoft.SaaS --wait
-   az provider register --namespace Microsoft.MarketplaceOrdering --wait
-   ```
-
-   Then repeat the two `show` commands, which must say `Registered`. Write in the
-   [findings log](#findings-log) whether they had to be registered.
+   **Expected:** `Registered` twice: the bootstrap's provider list holds both, so step 3 registered
+   them, and this only checks. **Stop if** either says anything else (`Registering` clears within
+   minutes; check again first). Registering by hand is not this step's yes: bring it to the owner.
+   Write what they said in the [findings log](#findings-log).
 
 5. **The subscription can buy Claude.** It is a pay-as-you-go subscription, not a free trial or a
    sponsored one, in a country where Anthropic sells through the Marketplace. The owner confirms
@@ -526,11 +522,12 @@ foundry README states. Read these values in the plan:
 - the Foundry resource: kind `AIServices`, SKU `S0`, location `eastus2`, `local_auth_enabled = false`,
   `project_management_enabled = true` and a `SystemAssigned` identity;
 - the GPT deployment: model `gpt-5.6-luna`, the chosen version, `version_upgrade_option = "NoAutoUpgrade"`,
-  SKU `GlobalStandard`, capacity 50;
+  SKU `GlobalStandard`, capacity 25 (or the `capacity` set in 4.1);
 - Claude: type `Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview`, format
-  `Anthropic`, model `claude-haiku-4-5`, SKU `GlobalStandard`, capacity 25, and the three details in
-  `modelProviderData`;
-- Log Analytics and Application Insights: `local_authentication_enabled = false`;
+  `Anthropic`, model `claude-haiku-4-5`, version `1`, `versionUpgradeOption = "NoAutoUpgrade"`, SKU
+  `GlobalStandard`, the same capacity as GPT, and the three details in `modelProviderData`;
+- Log Analytics and Application Insights: `local_authentication_enabled = false`; Log Analytics
+  `daily_quota_gb = 1`;
 - the connection: category `AppInsights`, `authType = "AAD"`;
 - the roles: `53ca6127-db72-4b80-b1b0-d745d6d5456d` (Foundry User) or
   `3913510d-42f4-4e42-8a64-420c390055eb` (Monitoring Metrics Publisher), and no other;
@@ -557,6 +554,10 @@ rm tfplan
 - **An error with `715-123420`** most likely means no quota (see 4.1).
 - **Marketplace refusal.** If the Claude deployment is refused for eligibility or terms, stop. The
   GPT half still stands, and the Claude half is reported as blocked, with the reason (spec §12).
+- **`versionUpgradeOption` refused for Claude.** The API's schema has it, but whether a Marketplace
+  model accepts it is only known live. If the Claude deployment fails naming it, stop: removing it
+  from `infra/foundry/main.tf` is a PR under its own yes, and the [findings log](#findings-log) then
+  records that Claude's version is pinned by `claude_model_version` alone.
 
 Then plan once more:
 
@@ -592,8 +593,8 @@ az cognitiveservices account deployment list --resource-group rg-fwa-foundry --n
 unset acct
 ```
 
-**Expected:** `gpt-5.6-luna` and `claude-haiku-4-5`, both `GlobalStandard`, with capacities 50 and
-25, both `Succeeded`.
+**Expected:** `gpt-5.6-luna` and `claude-haiku-4-5`, both `GlobalStandard`, both with capacity 25
+(or the `capacity` set in 4.1, the same for both), both `Succeeded`.
 
 ### 4.6 The foundry secrets in `live-eval`
 
@@ -672,16 +673,30 @@ s01 p1: success (completed, <k> tool calls, 0 gate violations, <t> s)
 
 **Expected (Claude):** the same, with no prompt-agent line.
 
-A task failure in the smoke is a result. Read its transcript, but it does not stop the step.
+A task failure that the model made (outcome `completed`, `tool_limit` or `truncated`) is a result.
+Read its transcript, but it does not stop the step. Then read the models the services say answered,
+and write them in the [findings log](#findings-log):
+
+```powershell
+Get-ChildItem $smoke -Filter 's01.*.json' | ForEach-Object {
+    $t = Get-Content $_.FullName -Raw | ConvertFrom-Json
+    '{0}: {1}; reported model {2}' -f $_.BaseName, $t.outcome, (($t.calls.modelId | Sort-Object -Unique) -join ', ')
+}
+```
 
 **Stop if:**
+- either run ends `engine_error`. With one scenario and no study yet, a refused request is a setup
+  fault until shown otherwise: a tool schema one provider refuses, a parameter, a model that is not
+  there. Read the transcript's `error` (the HTTP status and the service's error code) and bring it
+  to the owner. The fix is code or infrastructure, through a PR, before the dry run.
 - the GPT engine says `The prompt agent 'fwa-workshop-agent' version <n> does not hold the code's
   <field>`. This is the drift check refusing. `<field>` names the first difference: `tools` points at
   `strict` or a tool field, and any other name is a definition field the service filled in. Run 5.2
   to see what the service holds, then bring it to the owner. The fix is code, and needs its own PR.
-- either engine prints `infrastructure error: ...`, such as `401`, `403`, DNS, a credential, or the
-  app failing to start. A new role can take a few minutes after step 4: wait, and run the command
-  once more. If it repeats, stop.
+- either engine prints `infrastructure error: ...`, such as `401`, `403`, `404` (a deployment or
+  agent version the service does not have), DNS, a credential, or the app failing to start. A new
+  role can take a few minutes after step 4: wait, and run the command once more. If it repeats,
+  stop.
 - `--trace` refuses with `FWA_APPINSIGHTS_CONNECTION_STRING ...`.
 
 ### 5.2 What Foundry echoes back for the prompt agent
@@ -714,9 +729,12 @@ It prints the definition only: the model's deployment name and fields, never the
 - the tool fields are within `type`, `name`, `description`, `parameters` and `strict`;
 - the strict values are `null` or `"<absent>"`. Foundry accepted `"strict": null` and kept it.
 
-**Stop if** the strict values hold `true`. Strict mode changes how GPT's tool calls are checked,
-which Claude's engine does not do, so the engines would no longer be neutral. Bring it to the owner.
-`false` behaves like null: record it. Write every value in the [findings log](#findings-log).
+**Stop if** the strict values hold `true` or `false`. The drift check accepts only the code's
+`strict`, which is null (or the field left out), so 5.1 would already have refused with `tools`.
+Strict mode changes how GPT's tool calls are checked, which Claude's engine does not do, so the
+engines would no longer be neutral. If Foundry turns the code's null into `false`, making the code
+send `false` too is a PR, under its own yes. Bring it to the owner. Write every value in the
+[findings log](#findings-log).
 
 ### 5.3 The trace in Application Insights, within about 5 minutes
 
@@ -853,7 +871,7 @@ $dry = "$env:LOCALAPPDATA\FoundryWorkshopAgent\dry-run-<YYYY-MM-DD>"
 - each GPT command prints `Prompt agent fwa-workshop-agent version <n> holds the code's instructions
   and tools.` with **the same `<n>` as the smoke test**;
 - six run lines, `s05 p1: ...`, `s13 p1: ...` and `s17 p1: ...` for each engine;
-- `0 infrastructure errors` every time.
+- `0 infrastructure errors` every time, and no run ending `engine_error`.
 
 ### 6.2 Stop conditions
 
@@ -863,8 +881,9 @@ Read every run line, then each transcript's `outcome` and `tools`:
 Get-ChildItem $dry -Filter 's*.json' | ForEach-Object {
     $t = Get-Content $_.FullName -Raw | ConvertFrom-Json
     [pscustomobject]@{ run = $_.BaseName; outcome = $t.outcome; success = $t.success; tools = $t.tools.Count
-        input = ($t.calls | Measure-Object inputTokens -Sum).Sum; output = ($t.calls | Measure-Object outputTokens -Sum).Sum }
-} | Format-Table
+        input = ($t.calls | Measure-Object inputTokens -Sum).Sum; output = ($t.calls | Measure-Object outputTokens -Sum).Sum
+        error = $t.error }
+} | Format-Table -Wrap
 ```
 
 **Stop and bring it to the owner if any of these happens:**
@@ -874,13 +893,19 @@ Get-ChildItem $dry -Filter 's*.json' | ForEach-Object {
   the budget is the model's own failure, and stands.
 - **a run ends `throttled`.** The capacity is too small for the study's pace. That would count
   against the engine, so it is not a fair result.
+- **a run ends `engine_error`.** The service refused a request (its `error` names the HTTP status
+  and the error code) or the loop failed. It counts as the model's own failure, so a setup fault,
+  such as a schema one provider refuses, would score one engine 0 on every run.
 - **the agent's version `<n>` changes between commands,** or any start refuses for drift.
 - **any infrastructure error,** `time_limit` or `content_filtered.` Bring each to the owner to read.
 
 **A change after the freeze means a new freeze.** If the owner changes the token limit, the tool
-budget, the instructions or a scenario, re-freeze as in [step 2](#step-2-the-read-through-then-the-freeze),
-log it in the [freeze log](#freeze-log), and repeat this dry run under its own yes. A capacity change
-is infrastructure, not part of the freeze. It is a `terraform.tfvars` change, then a plan and apply
+budget, the time limit, the throttling budget, the instructions or a scenario, re-freeze as in
+[step 2](#step-2-the-read-through-then-the-freeze),
+log it in the [freeze log](#freeze-log), and repeat this dry run under its own yes. The limits are
+in `AgentSettings`, and the freeze's settings hash covers them, so a study run under the old freeze
+refuses to start. A capacity change is infrastructure, not part of the freeze, and changes both
+deployments together. It is a `terraform.tfvars` change, then a plan and apply
 under its own yes, and it is logged.
 
 ### 6.3 Measure
@@ -947,6 +972,7 @@ same `--out` twice, and never `--passes`.
 ```powershell
 git status --short          # nothing
 $out = "$env:LOCALAPPDATA\FoundryWorkshopAgent\study-<YYYY-MM-DD>"
+$study = "$out-<hash12>"
 dotnet run --project src/Workshop.Agent -c Release --no-build -- run --engine gpt --scenarios scenarios --study --out $out
 ```
 
@@ -968,7 +994,6 @@ s20 p3: ...
 
 ```powershell
 dotnet run --project src/Workshop.Agent -c Release --no-build -- run --engine claude --scenarios scenarios --study --out $out
-$study = "$out-<hash12>"
 ```
 
 **Expected:** the same shape, `<m> of 60 runs succeeded`, in the same `...-<hash12>` directory.
@@ -994,15 +1019,28 @@ After a Ctrl+C stop, start nothing else:
    `--out` date or suffix), under a new yes. A stopped study is never resumed: `--study` writes
    whole passes, in order, and a part-study would mix two sessions.
 
-**At each checkpoint** (after GPT's 60 runs, and after Claude's 60, before the scoring), stop and
-bring it to the owner if:
+**At each checkpoint** (after GPT's 60 runs, and after Claude's 60, before the scoring), count the
+outcomes, and list every run the owner must read:
+
+```powershell
+$runs = Get-ChildItem $study -Filter 's*.json' | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json }
+$runs | Group-Object engine, outcome | Sort-Object Name | Format-Table Count, Name
+$runs | Where-Object { $_.outcome -in 'engine_error', 'time_limit', 'content_filtered', 'truncated', 'throttled', 'tool_limit' } |
+    ForEach-Object { '{0}.{1}.p{2}: {3} {4}' -f $_.scenarioId, $_.engine, $_.pass, $_.outcome, $_.error }
+```
+
+Stop and bring it to the owner if:
+- **any run ended `engine_error`;** the owner reads each one's error code before the study counts
+  it (as in step 6);
+- **any run ended `time_limit` or `content_filtered`;** the owner reads each one;
 - **any run ended `truncated`;**
 - **any run ended `tool_limit` on a correct path** (as in step 6);
 - **any run ended `throttled`;**
 - **more than 3 of an engine's 60 runs were infrastructure errors.**
 
-The owner then decides. Either the runs stand as the pre-registered rule scores them (each is not a
-success), or something changes. A change to the settings, the budget, the instructions or a scenario
+The owner then decides, and the decision is written in the [findings log](#findings-log). Either
+the runs stand as the pre-registered rule scores them (each is not a success), or something
+changes. A change to the settings, the budget, the instructions or a scenario
 means a new freeze, logged, and a new study in a new directory under its own yes. The stopped
 directory is kept, renamed `...-stopped`, and is not published as the study. A capacity change is
 infrastructure: a plan and apply under its own yes, logged, and the study restarts in a new
@@ -1073,8 +1111,28 @@ Get-ChildItem $study -Recurse -File | Select-String -SimpleMatch -List -Pattern 
 ```
 
 **Expected:** `Scanned <k> file(s): no secret or identifier found.`, then nothing. **Stop if**
-anything is found. Nothing is copied or committed until the scan is clean. If a fix is needed, only
-the redaction changes. A file is never edited by hand to pass the scan.
+anything is found. Nothing is copied or committed until the scan is clean. Read each finding's line
+yourself, never by printing it to a log.
+
+**A finding in a transcript's `infraMessage` or `error`** (a failure's text: a path, a user name, a
+32-hex run name, a service's identifier) has one sanctioned remedy, under this step's yes:
+1. Fix `Redaction` in the agent through a PR, with a test, merged green; then `git pull --ff-only`
+   and `dotnet build -c Release`.
+2. Apply the fixed redaction again to the transcripts already written. It changes `infraMessage`
+   and `error` only, and logs each file it changed, by name and field, in `$study\redactions.md`,
+   which is published with the study:
+
+   ```powershell
+   dotnet run --project src/Workshop.Agent -c Release --no-build -- transcripts redact $study
+   ```
+
+   **Expected:** `Re-redacted <r> of <t> transcripts; each is logged in ...redactions.md.`
+3. Scan again, as above, and add a row to the [findings log](#findings-log): the date, the kind
+   found, the PR, and `<r>`.
+
+Any other finding (in another field, or in another file) has no remedy here: stop and bring it to
+the owner. A file is never edited by hand to pass the scan, and the dataset, scores and report are
+regenerated only by their own commands.
 
 ### 8.2 Copy and write the Results section
 
@@ -1082,12 +1140,13 @@ the redaction changes. A file is never edited by hand to pass the scan.
 git switch main
 git pull --ff-only
 git switch -c docs/study-results
+New-Item -ItemType Directory -Force results | Out-Null
 Copy-Item $study "results\study-<YYYY-MM-DD>-<hash12>" -Recurse
 eval/.venv/Scripts/python -m fwa_eval.scan "results\study-<YYYY-MM-DD>-<hash12>" --literal-env FWA_PROJECT_ENDPOINT --literal-env FWA_RESOURCE_ENDPOINT --literal-env FWA_APPINSIGHTS_CONNECTION_STRING
 ```
 
-The copy holds the 120 transcripts, `dataset.jsonl`, `eval-scores.json`, `report.md` and any
-`repeats/`. The repeat directories are not copied.
+The copy holds the 120 transcripts, `dataset.jsonl`, `eval-scores.json`, `report.md`, any
+`repeats/` and any `redactions.md` (8.1). The repeat directories are not copied.
 
 Add a dated section to `README.md`, `## Results, <D Month YYYY>`, **worded as rendered**:
 - the verdict line exactly as `report.md` renders it, with the date and the number of scenarios;
@@ -1149,6 +1208,11 @@ CI is green.
    - **Scan:** `Scanned <k> file(s): no secret or identifier found.`, then the summary is posted and
      the artifact `live-eval-<number>` is uploaded.
    - **The report** in the job summary says it is a smoke run, not the study (1 pass, one engine).
+   - **CI's roles.** CI has Foundry User on the project only; the owner's smoke ran with it on the
+     resource too, so it could not show that the project scope is enough. A `403` in the run step
+     (`infrastructure error: ... 403`) or the eval step means CI needs Foundry User on the Foundry
+     resource as well. Stop: that role is a PR to `infra/foundry`, then a plan and apply, under its
+     own yes, and the [findings log](#findings-log) records it.
 
 3. **Read the log for a leaked resource name.** In the window from the setup:
 
@@ -1247,10 +1311,15 @@ In WSL:
    ```bash
    az cognitiveservices account purge --name "$acct" --resource-group rg-fwa-foundry --location eastus2
    az cognitiveservices account list-deleted --query "[?name=='$acct'] | length(@)" -o tsv
-   unset acct
    ```
 
    **Expected:** the second command prints `0`.
+
+   Then, whether or not a purge was needed, drop the name:
+
+   ```bash
+   unset acct
+   ```
 
 6. **Confirm that the resource group is gone:**
 
@@ -1358,7 +1427,9 @@ identifiers, yes or no.
 | Check | Step | Found |
 |---|---|---|
 | `gpt_model_version` read from the eastus2 catalogue | 4.1 | `<YYYY-MM-DD>` |
-| `Microsoft.SaaS` / `Microsoft.MarketplaceOrdering` had to be registered | 4.1 | |
+| `Microsoft.SaaS` / `Microsoft.MarketplaceOrdering` registered by the bootstrap | 4.1 | |
+| The capacity used for both deployments (thousands of TPM) | 4.1 | `25` |
+| The Claude deployment accepts `versionUpgradeOption = "NoAutoUpgrade"` | 4.4 | |
 | The Claude deployment keeps its tags (second plan: no changes) | 4.4 | |
 | Local auth off: Foundry resource, Application Insights, Log Analytics | 4.5 | |
 | Foundry accepted `"strict": null` and echoes it back (strict values) | 5.2 | |
@@ -1373,7 +1444,11 @@ identifiers, yes or no.
 | The evaluators accept the item schema and mappings (azure-ai-projects 2.7.0) | 5.6 | |
 | Result names and score scales: `tool_call_accuracy`, `task_adherence`, `intent_resolution` | 5.6 | |
 | No bare resource name or other identifier in the smoke outputs | 5.7 | |
+| The models the services say answered (`calls[].modelId`), for GPT and Claude | 5.1 | |
 | The agent version stays the same across starts | 6.1 | |
+| Each `engine_error`, `time_limit` and `content_filtered` run, and the owner's decision | 6.2, 7.2 | |
+| Any re-redaction: the date, the kind found, the PR, and the transcripts changed | 8.1 | |
+| CI's project-scope Foundry User is enough, or a resource-scope role was needed | 8.4 | |
 | The live run's mask step (runner's Python) and `azure/login` v3.1.0 | 8.4 | |
 
 ## Freeze log
