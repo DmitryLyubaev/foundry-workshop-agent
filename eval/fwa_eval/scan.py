@@ -14,7 +14,8 @@ count one by one, with the hosts and resource names in them, except its region l
 eastus2-0) and generic suffixes, which identify nothing.
 
 --mask scans nothing: it prints `::add-mask::<value>` for each of those values, so GitHub masks
-them in every later line of the job log. GitHub masks a secret's whole value only, never the host
+them in every later line of the job log. A value with a line break is masked line by line: printed
+whole, its break would end the command, and the rest of the value would be printed in the clear. GitHub masks a secret's whole value only, never the host
 or the resource name inside it, and an Azure error can print those. The workflow runs this first,
 with the runner image's Python, so this module imports only the standard library.
 
@@ -100,6 +101,12 @@ def _parts(value: str) -> list[str]:
     return parts
 
 
+def _lines(value: str) -> list[str]:
+    """The value's lines, each masked and looked for on its own: one ::add-mask:: command is one line,
+    and the scan reads line by line. A line shorter than MIN_LITERAL is left out, as a short value is."""
+    return [line for line in (part.strip() for part in re.split(r"\r\n|\r|\n", value)) if len(line) >= MIN_LITERAL]
+
+
 def literals(names: list[str], environ: Mapping[str, str]) -> list[tuple[str, str]]:
     """(name, value) for each value to look for or mask, as given (see _parts); unset and short values are left out."""
     values = []
@@ -111,7 +118,7 @@ def literals(names: list[str], environ: Mapping[str, str]) -> list[tuple[str, st
 
 def scan(directory: Path, secrets: list[tuple[str, str]]) -> list[str]:
     """`file:line: kind` for everything found under `directory`, in file order."""
-    secrets = list(dict.fromkeys((name, value.lower()) for name, value in secrets))
+    secrets = list(dict.fromkeys((name, line.lower()) for name, value in secrets for line in _lines(value)))
     report = []
     for path in sorted(p for p in directory.rglob("*") if p.is_file()):
         # Undecodable bytes become replacement characters: a binary file is still read, never skipped.
@@ -136,7 +143,7 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
 
     environ = os.environ if environ is None else environ
     if args.mask:
-        for value in dict.fromkeys(v for _, v in literals(args.literal_env, environ)):
+        for value in dict.fromkeys(line for _, v in literals(args.literal_env, environ) for line in _lines(v)):
             print(f"::add-mask::{value}")
         return 0
 

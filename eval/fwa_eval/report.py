@@ -33,6 +33,15 @@ _OUTCOME_ORDER = (
     "service_error", "infra_error",
 )
 _INFRA_OUTCOMES = {"service_error", "infra_error"}
+
+# How the runner writes a refused request (Workshop.Agent's ModelRequestException), and any other
+# failure (`<type>: <message>`). Only the status, the service's error code and the exception's type
+# are printed, never the message, which is free text.
+_HTTP_ERROR = re.compile(r"\bHTTP (?P<status>\d{3}) \((?P<code>[^()]{1,64})\)")
+_ERROR_TYPE = re.compile(r"^(?:[A-Za-z_]\w*\.)*(?P<type>[A-Za-z_]\w*(?:Exception|Error))(?::|$)")
+_SAFE_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
+# A code with a long hex run or a generated-name shape could be an identifier, not a code.
+_NOT_A_CODE = re.compile(r"[0-9a-f]{8}|[a-z]+-[a-z0-9]*\d[a-z0-9]*", re.IGNORECASE)
 _KNOWN_ENGINE = re.compile(r"^[a-z][a-z0-9-]{0,15}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -234,6 +243,7 @@ def _tools(engines: list[str], by_engine: dict[str, list[dict]]) -> list[str]:
             label += " (infrastructure)"
         counts = [sum(1 for t in by_engine[e] if t["outcome"] == outcome) for e in engines]
         lines.append(f"| {label} | " + " | ".join(str(c) for c in counts) + " |")
+    lines += _engine_errors(engines, by_engine)
 
     cut = [r for runs in by_engine.values() for t in runs for r in t["tools"]
            if r.get("result") is None and r["outcome"] in ("cancelled", "error")]
@@ -248,6 +258,40 @@ def _tools(engines: list[str], by_engine: dict[str, list[dict]]) -> list[str]:
         )
     else:
         lines.append("No tool call was cut off.")
+    return lines
+
+
+def _engine_error_code(error) -> str:
+    """What an engine_error's text says decided it: `HTTP <status> <code>`, or the exception's type."""
+    text = error if isinstance(error, str) else ""
+    http = _HTTP_ERROR.search(text)
+    if http:
+        code = http.group("code")
+        if code == "no error code":
+            return f"HTTP {http.group('status')} (no error code)"
+        if _SAFE_CODE.match(code) and not _NOT_A_CODE.search(code):
+            return f"HTTP {http.group('status')} {code}"
+        return "(other)"
+    typed = _ERROR_TYPE.match(text)
+    return typed.group("type") if typed and not _NOT_A_CODE.search(typed.group("type")) else "(other)"
+
+
+def _engine_errors(engines: list[str], by_engine: dict[str, list[dict]]) -> list[str]:
+    """engine_error by its code, per engine: a setup fault on one engine shows here before it decides a verdict."""
+    codes = {e: [_engine_error_code(t.get("error")) for t in by_engine[e] if t["outcome"] == "engine_error"] for e in engines}
+    seen = sorted({c for cs in codes.values() for c in cs}, key=lambda c: (c == "(other)", c))
+    if not seen:
+        return []
+    lines = [
+        "",
+        "Engine errors by code, the model's own failures (any of them on every run of one engine is a setup fault to "
+        "read before the verdict):",
+        "",
+        "| Code | " + " | ".join(_engine_label(e) for e in engines) + " |",
+        "|---|" + "---:|" * len(engines),
+    ]
+    for code in seen:
+        lines.append(f"| {code} | " + " | ".join(str(codes[e].count(code)) for e in engines) + " |")
     return lines
 
 
@@ -309,7 +353,12 @@ def _comparison(analysis: dict) -> list[str]:
     lines.append("")
     freeze = analysis["freeze"]
     # Said on the verdict itself, not only in the header: the line is the one that gets quoted.
-    caveat = " (transcripts do not match the freeze)" if freeze is not None and not freeze["matches_transcripts"] else ""
+    caveats = []
+    if freeze is not None and not freeze["matches_transcripts"]:
+        caveats.append("transcripts do not match the freeze")
+    if not analysis["complete"]:
+        caveats.append(f"incomplete: {analysis['runs_made']} of {analysis['runs_expected']} runs")
+    caveat = f" ({'; '.join(caveats)})" if caveats else ""
     if analysis["verdict"] == "difference":
         favoured = _engine_label(analysis["favours"])
         lines.append(f"**Verdict: difference{caveat}.** {favoured}'s task success is higher, over {_plural(n, 'scenario', 'scenarios')}.")
@@ -361,6 +410,8 @@ def _limits(analysis: dict) -> list[str]:
         "than removed. Task success is decided by the database, not by a judge.",
         f"- Costs are the recorded tokens at the prices of {prices.READ_ON}; they leave out the judge's tokens and "
         "Application Insights.",
+        "- Time per task is the whole run, and includes any waits for throttling (at most 60 s a run); both "
+        "deployments are given the same capacity.",
     ]
 
 

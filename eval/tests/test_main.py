@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import re
 import shutil
 
 import pytest
@@ -57,8 +58,9 @@ def test_report_reads_the_scores_beside_the_transcripts(study, freeze, monkeypat
     written = (study / cli.REPORT_FILE).read_text(encoding="utf-8")
     assert out == written
     assert "Judge: `gpt-5.6-luna`" in written
-    today = dt.datetime.now(dt.UTC).date()
-    assert written == report.render(analysis.compare(study, freeze_path=freeze), scores, study, rendered_on=today)
+    # The date as the CLI rendered it, read back: computed again here, it could fall across UTC midnight.
+    rendered_on = dt.date.fromisoformat(re.search(r"; rendered (\d{4}-\d{2}-\d{2})", written).group(1))
+    assert written == report.render(analysis.compare(study, freeze_path=freeze), scores, study, rendered_on=rendered_on)
 
 
 def test_report_without_scores_says_the_evaluators_did_not_run(study, freeze):

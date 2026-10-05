@@ -149,6 +149,28 @@ def test_mask_prints_an_add_mask_command_for_each_hosts_and_resource_name(capsys
     assert len(lines) == len(masked)
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_mask_masks_a_value_with_a_line_break_line_by_line(capsys, newline):
+    """A value with a line break would split its ::add-mask:: line, and GitHub would print the rest."""
+    environ = {"FWA_X": f"first-half-secret{newline}second-half-secret"}
+
+    assert scan.main(["--mask", "--literal-env", "FWA_X"], environ=environ) == 0
+
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert all(line.startswith("::add-mask::") for line in lines)
+    assert {line.removeprefix("::add-mask::") for line in lines} == {"first-half-secret", "second-half-secret"}
+    assert "\r" not in out
+
+
+def test_the_scan_finds_each_line_of_a_value_with_a_line_break(tmp_path):
+    (tmp_path / "a.txt").write_text("ok\nthe second-half-secret leaked\n", encoding="utf-8")
+
+    found = scan.scan(tmp_path, [("FWA_X", "first-half-secret\nsecond-half-secret")])
+
+    assert found == ["a.txt:2: the value of FWA_X"]
+
+
 def test_mask_with_nothing_set_prints_nothing_and_succeeds(capsys):
     assert scan.main(["--mask", "--literal-env", "FWA_PROJECT_ENDPOINT"], environ={}) == 0
     assert capsys.readouterr().out == ""

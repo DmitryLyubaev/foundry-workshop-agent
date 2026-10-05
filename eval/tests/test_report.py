@@ -140,8 +140,23 @@ def test_the_verdict_as_rendered(tmp_path, freeze):
     assert "a smoke run" not in text
 
     better = write_study(tmp_path / "better", {f"s{i:02d}": ([1, 1, 1], [0, 0, 0]) for i in range(1, 6)})
-    text = report.render(compare(better, freeze_path=freeze), None, better, rendered_on=RENDERED_ON)
+    five = write_freeze(tmp_path / "five" / "freeze.json", scenarios=5)
+    text = report.render(compare(better, freeze_path=five), None, better, rendered_on=RENDERED_ON)
     assert "**Verdict: difference.** GPT's task success is higher, over 5 scenarios." in text
+
+
+def test_an_incomplete_study_says_so_on_the_verdict(tmp_path, freeze):
+    """5 of the 20 frozen scenarios: the verdict line, the one that gets quoted, says the study is incomplete."""
+    study = write_study(tmp_path / "study", {f"s{i:02d}": ([1, 1, 1], [0, 0, 0]) for i in range(1, 6)})
+
+    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+
+    assert "**Verdict: difference (incomplete: 30 of 120 runs).** GPT's task success is higher, over 5 scenarios." in text
+    assert "a smoke run, not the study." in text
+
+    even = write_study(tmp_path / "even", {"s01": ([1], [1])})
+    text = report.render(compare(even, freeze_path=freeze), None, even, rendered_on=RENDERED_ON)
+    assert "**Verdict: inconclusive at 1 scenario (incomplete: 2 of 120 runs).**" in text
 
 
 def test_the_limits(recorded_report):
@@ -181,33 +196,72 @@ def test_an_unfrozen_run_says_so(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("change", "said"),
+    ("change", "said", "caveat"),
     [
-        ({"settings_sha": "8" * 64}, "their settings differ from it"),
-        ({"instructions_sha": "9" * 64}, "their instructions differ from it"),
-        ({"tools_sha": "7" * 64}, "the tools differ from it"),
-        ({"scenarios": ["s02"]}, "they hold scenarios it does not list"),
+        ({"settings_sha": "8" * 64}, "their settings differ from it", "transcripts do not match the freeze"),
+        ({"instructions_sha": "9" * 64}, "their instructions differ from it", "transcripts do not match the freeze"),
+        ({"tools_sha": "7" * 64}, "the tools differ from it", "transcripts do not match the freeze"),
+        # s01's runs are not s02's: none of the frozen study's runs was made.
+        ({"scenarios": ["s02"]}, "they hold scenarios it does not list", "transcripts do not match the freeze; incomplete: 0 of 6 runs"),
     ],
 )
-def test_transcripts_that_do_not_match_the_freeze_are_flagged_on_the_verdict(tmp_path, change, said):
+def test_transcripts_that_do_not_match_the_freeze_are_flagged_on_the_verdict(tmp_path, change, said, caveat):
     study = write_study(tmp_path / "study", {"s01": ([1, 1, 1], [0, 0, 0])})
-    other = write_freeze(tmp_path / "f" / "freeze.json", **change)
+    other = write_freeze(tmp_path / "f" / "freeze.json", **({"scenarios": ["s01"]} | change))
 
     text = report.render(compare(study, freeze_path=other), None, study, rendered_on=RENDERED_ON)
 
     assert f"were not run under this freeze ({said})" in text
-    assert "**Verdict: difference (transcripts do not match the freeze).** GPT's task success is higher" in text
+    assert f"**Verdict: difference ({caveat}).** GPT's task success is higher" in text
 
     inconclusive = write_study(tmp_path / "even", {"s01": ([1, 1, 1], [1, 1, 1])})
     text = report.render(compare(inconclusive, freeze_path=other), None, inconclusive, rendered_on=RENDERED_ON)
-    assert "**Verdict: inconclusive at 1 scenario (transcripts do not match the freeze).**" in text
+    assert f"**Verdict: inconclusive at 1 scenario ({caveat}).**" in text
 
 
-def test_a_matching_freeze_leaves_the_verdict_unqualified(tmp_path, freeze):
+def test_a_matching_complete_freeze_leaves_the_verdict_unqualified(tmp_path):
     study = write_study(tmp_path / "study", {"s01": ([1, 1, 1], [0, 0, 0])})
-    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+    one = write_freeze(tmp_path / "one" / "freeze.json", scenarios=["s01"])
+    text = report.render(compare(study, freeze_path=one), None, study, rendered_on=RENDERED_ON)
     assert "do not match the freeze" not in text
+    assert "incomplete" not in text
     assert "**Verdict: difference.**" in text
+
+
+def test_engine_errors_are_shown_by_their_code(tmp_path, freeze):
+    """engine_error is the model's own failure, so what decided it is shown: the code, never the message."""
+    study = write_study(tmp_path / "study", {"s01": ([1], [1])})
+    errors = [
+        ("gpt", 2, "Workshop.Agent.Engines.ModelRequestException: HTTP 400 (invalid_value): Invalid value for 'input'."),
+        ("claude", 2, "Workshop.Agent.Engines.ModelRequestException: HTTP 400 (invalid_request_error): tools.0: bad schema"),
+        ("claude", 3, "Workshop.Agent.Engines.ModelRequestException: HTTP 400 (invalid_request_error): tools.0: bad schema"),
+        ("claude", 4, "Workshop.Agent.Engines.ModelRequestException: HTTP 422 (no error code): the service gave no message."),
+        ("claude", 5, "System.InvalidOperationException: The model's answer could not be read."),
+        # A code that could carry an identifier is not printed as given.
+        ("gpt", 3, "Workshop.Agent.Engines.ModelRequestException: HTTP 400 (fwa-0123abcd): something"),
+        ("gpt", 4, None),
+    ]
+    for engine, pass_, error in errors:
+        t = transcript("s01", engine, pass_, success=False, outcome="engine_error", final_reply=None)
+        t["error"] = error
+        write(study, t)
+
+    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+
+    section = _section(text, "## Tool calls, gate violations and outcomes")
+    assert "| engine_error | 3 | 4 |" in section
+    assert "Engine errors by code, the model's own failures (any of them on every run of one engine is a setup fault to read before the verdict):" in section
+    assert "| HTTP 400 invalid_request_error | 0 | 2 |" in section
+    assert "| HTTP 400 invalid_value | 1 | 0 |" in section
+    assert "| HTTP 422 (no error code) | 0 | 1 |" in section
+    assert "| InvalidOperationException | 0 | 1 |" in section
+    assert "| (other) | 2 | 0 |" in section
+    assert "fwa-0123abcd" not in text
+    assert "bad schema" not in text and "could not be read" not in text
+
+
+def test_without_engine_errors_no_code_table_is_shown(recorded_report):
+    assert "Engine errors by code" not in recorded_report
 
 
 # --- Review Focus 4: nothing identifying reaches the report ----------------------------------

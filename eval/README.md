@@ -42,7 +42,8 @@ but not a region label such as `eastus2` or `eastus2-0`, nor a generic suffix, w
 names or shares). It prints
 each finding as `file:line: kind`, never the text it matched. With `--mask` (and no directory) it
 scans nothing and prints `::add-mask::` for each of those values instead: the workflow's first step
-after checkout, so GitHub masks them in the job log too. It uses only the standard library.
+after checkout, so GitHub masks them in the job log too. A value with a line break is masked, and
+looked for, line by line. It uses only the standard library.
 
 Run them from `eval/`, or put `eval/` on `PYTHONPATH`.
 
@@ -147,9 +148,13 @@ passes for "no freeze".
 - **Is this the study, or a smoke run?** The report counts runs made against the freeze's scenarios
   × the rule's passes × 2 engines. A run dropped for an infrastructure error still counts as made:
   dropping it is the pre-registered rule, not a shorter study. Only a run short of that count is
-  called a smoke run.
+  called a smoke run, and the verdict line then carries "(incomplete: k of N runs)".
   - The comparison section lists each run that was dropped, by engine, scenario and pass.
   - The cost section shows the dropped runs' tokens and cost apart from the scored runs.
+- **What decided the `engine_error` runs?** They are the model's own failures, and count as task
+  failures, so the outcomes table is followed by their counts per engine by code: the HTTP status
+  and the service's error code, or the exception's type, never the message. The same code on every
+  run of one engine is a setup fault to read before the verdict.
 
 ## Prices
 
