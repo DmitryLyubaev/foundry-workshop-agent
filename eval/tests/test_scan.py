@@ -29,6 +29,19 @@ from fwa_eval import scan
         ("AccountKey=abc", "connection-string key"),
         ("sk-ant-0123456789abcdefghijkl", "API key"),
         ("key 0123456789abcdef0123456789abcdef", "32-hex key"),
+        # An identifier joined to a letter or an underscore is still found.
+        ("id_00000000-0000-0000-0000-000000000000", "GUID"),
+        ("x00000000-0000-0000-0000-000000000000", "GUID"),
+        ("a00000000-0000-0000-0000-000000000000", "GUID"),
+        ("00000000-0000-0000-0000-000000000000abc", "GUID"),
+        ("key_0123456789abcdef0123456789abcdef", "32-hex key"),
+        ("x0123456789abcdef0123456789abcdefz", "32-hex key"),
+        # Tenant domains and more Azure service hosts.
+        ("tenant example.onmicrosoft.com", "Azure or Anthropic host"),
+        ("ws-example.eastus2.api.azureml.ms", "Azure or Anthropic host"),
+        ("apim-example.azure-api.net", "Azure or Anthropic host"),
+        ("example.azurefd.net", "Azure or Anthropic host"),
+        ("crexample.azurecr.io", "Azure or Anthropic host"),
     ],
 )
 def test_it_finds(text, kind):
@@ -96,3 +109,72 @@ def test_files_in_subdirectories_are_scanned(tmp_path):
 def test_a_missing_directory_fails_closed(tmp_path, capsys):
     assert scan.main([str(tmp_path / "nowhere")], environ={}) == 2
     assert "no directory" in capsys.readouterr().err.lower()
+
+
+CONNECTION_STRING = (
+    "InstrumentationKey=00000000-0000-0000-0000-000000000000;"
+    "IngestionEndpoint=https://eastus2-0.in.applicationinsights.azure.com/;"
+    "LiveEndpoint=https://eastus2.livediagnostics.monitor.azure.com/;"
+    "ApplicationId=11111111-1111-1111-1111-111111111111"
+)
+
+
+def test_a_connection_strings_parts_are_literals():
+    values = {v for _, v in scan.literals(["FWA_APPINSIGHTS_CONNECTION_STRING"], {"FWA_APPINSIGHTS_CONNECTION_STRING": CONNECTION_STRING})}
+
+    assert "00000000-0000-0000-0000-000000000000" in values
+    assert "11111111-1111-1111-1111-111111111111" in values
+    assert "eastus2-0.in.applicationinsights.azure.com" in values
+    assert "eastus2.livediagnostics.monitor.azure.com" in values
+
+
+def test_mask_prints_an_add_mask_command_for_each_hosts_and_resource_name(capsys):
+    environ = {
+        "FWA_PROJECT_ENDPOINT": "https://FWA-z9y8x7.services.ai.azure.com/api/projects/fwa-workshop",
+        "FWA_RESOURCE_ENDPOINT": "https://fwa-z9y8x7.cognitiveservices.azure.com/",
+        "FWA_APPINSIGHTS_CONNECTION_STRING": CONNECTION_STRING,
+    }
+
+    code = scan.main(["--mask", "--literal-env", "FWA_PROJECT_ENDPOINT", "--literal-env", "FWA_RESOURCE_ENDPOINT",
+                      "--literal-env", "FWA_APPINSIGHTS_CONNECTION_STRING"], environ=environ)
+
+    assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert all(line.startswith("::add-mask::") for line in lines)
+    masked = {line.removeprefix("::add-mask::") for line in lines}
+    # Both the case as given and lower case: masking is case-sensitive.
+    assert {"FWA-z9y8x7", "fwa-z9y8x7", "fwa-z9y8x7.cognitiveservices.azure.com", "fwa-z9y8x7.services.ai.azure.com"} <= masked
+    assert "00000000-0000-0000-0000-000000000000" in masked
+    assert "eastus2-0.in.applicationinsights.azure.com" in masked
+    assert len(lines) == len(masked)
+
+
+def test_mask_with_nothing_set_prints_nothing_and_succeeds(capsys):
+    assert scan.main(["--mask", "--literal-env", "FWA_PROJECT_ENDPOINT"], environ={}) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_a_directory_is_required_unless_masking(capsys):
+    assert scan.main(["--literal-env", "X"], environ={}) == 2
+
+
+def test_the_evaluations_polling_limit_is_30_minutes():
+    # The live job's timeout is 45 minutes (WorkflowShapeTests): a slow evaluation ends here first,
+    # so the scan and the upload still run.
+    import inspect
+
+    from fwa_eval import run_eval
+
+    assert inspect.signature(run_eval.run).parameters["timeout_seconds"].default == 1800.0
+
+
+def test_the_scan_imports_only_the_standard_library():
+    # The masking step runs it with the runner image's Python, before setup-python and pip install.
+    import ast
+    import sys
+    from pathlib import Path
+
+    tree = ast.parse(Path(scan.__file__).read_text(encoding="utf-8"))
+    modules = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    modules |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert modules - {"__future__"} <= set(sys.stdlib_module_names)

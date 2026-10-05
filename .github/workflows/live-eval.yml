@@ -29,7 +29,9 @@ jobs:
     environment: live-eval
     # WinForms needs Windows: the runner starts Workshop.App for each scenario.
     runs-on: windows-latest
-    timeout-minutes: 30
+    # Above the evaluation's own 30-minute polling limit (run_eval.run), so a slow cloud evaluation
+    # fails its step and the scan and the upload still run, rather than the job timing out.
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
@@ -40,6 +42,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # First, before any step that could print them. GitHub masks each secret's whole value in the
+      # log, never the host or the resource name (fwa-<suffix>) inside an endpoint, nor a connection
+      # string's parts; an Azure error can print those. This prints ::add-mask:: for each of them,
+      # with the runner image's Python (scan.py is standard library only). Values come from env,
+      # never from an expression in the script.
+      - name: Mask the endpoints' hosts and resource names
+        working-directory: eval
+        env:
+          FWA_PROJECT_ENDPOINT: ${{ secrets.FWA_PROJECT_ENDPOINT }}
+          FWA_RESOURCE_ENDPOINT: ${{ secrets.FWA_RESOURCE_ENDPOINT }}
+          FWA_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.FWA_APPINSIGHTS_CONNECTION_STRING }}
+        run: python -m fwa_eval.scan --mask --literal-env FWA_PROJECT_ENDPOINT --literal-env FWA_RESOURCE_ENDPOINT --literal-env FWA_APPINSIGHTS_CONNECTION_STRING
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -93,12 +108,13 @@ jobs:
 
       # Before anything leaves the runner. GitHub masks secrets in the log, not in an artifact or a
       # summary, and not a secret's fragments; so the patterns (tokens, URLs, hosts, GUIDs, emails,
-      # keys) and the secrets' own values, hosts and resource names are looked for. A finding fails
-      # the job, and neither the summary nor the upload runs. It runs after a failed step too, so the
-      # transcripts of a failed run can still be uploaded once they are clean.
+      # keys) and every secret the job uses (its value, hosts and resource names) are looked for. The
+      # deployment names are left out: they are the public model names every transcript records. A
+      # finding fails the job, and neither the summary nor the upload runs. always(): a failed or
+      # timed-out step cannot skip it; with no output directory it fails (exit 2).
       - name: Scan the outputs for secrets
         id: scan
-        if: ${{ !cancelled() }}
+        if: always()
         working-directory: eval
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -106,7 +122,8 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           FWA_PROJECT_ENDPOINT: ${{ secrets.FWA_PROJECT_ENDPOINT }}
           FWA_RESOURCE_ENDPOINT: ${{ secrets.FWA_RESOURCE_ENDPOINT }}
-        run: python -m fwa_eval.scan "$env:OUT_DIR" --literal-env AZURE_CLIENT_ID --literal-env AZURE_TENANT_ID --literal-env AZURE_SUBSCRIPTION_ID --literal-env FWA_PROJECT_ENDPOINT --literal-env FWA_RESOURCE_ENDPOINT
+          FWA_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.FWA_APPINSIGHTS_CONNECTION_STRING }}
+        run: python -m fwa_eval.scan "$env:OUT_DIR" --literal-env AZURE_CLIENT_ID --literal-env AZURE_TENANT_ID --literal-env AZURE_SUBSCRIPTION_ID --literal-env FWA_PROJECT_ENDPOINT --literal-env FWA_RESOURCE_ENDPOINT --literal-env FWA_APPINSIGHTS_CONNECTION_STRING
 
       - name: Post the report to the job summary
         if: ${{ !cancelled() && steps.scan.outcome == 'success' && hashFiles('live-eval-out/report.md') != '' }}

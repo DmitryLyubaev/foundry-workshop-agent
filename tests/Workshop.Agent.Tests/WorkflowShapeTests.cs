@@ -74,12 +74,20 @@ public sealed partial class WorkflowShapeTests
     }
 
     [Fact]
-    public void Every_job_has_a_30_minute_timeout_and_the_workflow_runs_one_at_a_time()
+    public void Every_job_has_a_45_minute_timeout_and_the_workflow_runs_one_at_a_time()
     {
         foreach (var (_, job) in Jobs())
         {
-            Assert.Equal("30", Text(Get(job, "timeout-minutes")));
+            Assert.Equal("45", Text(Get(job, "timeout-minutes")));
         }
+
+        // The evaluation gives up polling at 30 minutes, inside the job's 45: a slow cloud evaluation
+        // fails its step, and the scan and the upload still run, rather than the job timing out with
+        // the spend and no outputs. eval/tests/test_scan.py pins the same default from Python.
+        var runEval = File.ReadAllText(Path.Combine(RepoPaths.RepoRoot, "eval", "fwa_eval", "run_eval.py"));
+        var polling = EvalPollingLimit().Match(runEval);
+        Assert.True(polling.Success, "No timeout_seconds default in eval/fwa_eval/run_eval.py.");
+        Assert.Equal(30 * 60, double.Parse(polling.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
 
         // One run at a time; a second waits rather than cancelling a paid run part-way.
         var concurrency = Assert.IsType<YamlMappingNode>(Get(Root.Value, "concurrency"));
@@ -149,8 +157,12 @@ public sealed partial class WorkflowShapeTests
     public void The_outputs_are_scanned_for_secrets_before_the_summary_and_the_upload()
     {
         var steps = Steps().ToList();
-        var scan = Single(steps, s => s.Children.ContainsKey("run") && Text(Get(s, "run")).Contains("python -m fwa_eval.scan", StringComparison.Ordinal), "the secret scan");
+        var scan = Scan(steps);
         Assert.Equal("scan", Text(Get(scan, "id")));
+
+        // always(): a failed or timed-out earlier step cannot skip the scan. It fails closed on its own
+        // (exit 2 when there is no output directory), and its failure skips the summary and the upload.
+        Assert.Equal("always()", Unwrap(Text(Get(scan, "if"))));
 
         var summary = Single(steps, s => s.Children.ContainsKey("run") && Text(Get(s, "run")).Contains("GITHUB_STEP_SUMMARY", StringComparison.Ordinal), "the summary");
         var upload = Single(steps, s => Uses(s).StartsWith("actions/upload-artifact@", StringComparison.OrdinalIgnoreCase), "the upload");
@@ -185,6 +197,66 @@ public sealed partial class WorkflowShapeTests
         var checkout = Single(Steps().ToList(), s => Uses(s).StartsWith("actions/checkout@", StringComparison.OrdinalIgnoreCase), "actions/checkout");
         Assert.Equal("false", Text(Get(Assert.IsType<YamlMappingNode>(Get(checkout, "with")), "persist-credentials")));
     }
+
+    [Fact]
+    public void No_run_script_interpolates_an_expression()
+    {
+        // A ${{ }} in a script is pasted into its text before it runs: a secret would sit in the script
+        // file, and an attacker-controlled value would be code. Values reach scripts through env only.
+        var scripts = Steps().Where(s => s.Children.ContainsKey("run")).Select(s => Text(Get(s, "run"))).ToList();
+        Assert.NotEmpty(scripts);
+        Assert.All(scripts, script => Assert.DoesNotContain("${{", script, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_first_step_after_checkout_masks_every_endpoints_host_and_resource_name()
+    {
+        // GitHub masks a secret's whole value in the log, never the host or resource name inside it,
+        // which an Azure error can print; so they are masked before any step that could print them.
+        var steps = Steps().ToList();
+        Assert.StartsWith("actions/checkout@", Uses(steps[0]), StringComparison.OrdinalIgnoreCase);
+
+        var mask = steps[1];
+        var run = Text(Get(mask, "run"));
+        Assert.Contains("python -m fwa_eval.scan --mask", run, StringComparison.Ordinal);
+        Assert.Equal("eval", Text(Get(mask, "working-directory")));
+
+        var endpointSecrets = SecretsUsed().Where(s => s.Contains("ENDPOINT", StringComparison.Ordinal) || s.Contains("CONNECTION_STRING", StringComparison.Ordinal))
+            .Union(["FWA_PROJECT_ENDPOINT", "FWA_RESOURCE_ENDPOINT", "FWA_APPINSIGHTS_CONNECTION_STRING"]);
+        AssertReadsFromEnv(mask, endpointSecrets);
+    }
+
+    [Fact]
+    public void The_scan_looks_for_every_secret_the_job_uses()
+    {
+        // The deployment names are the exception: infra names each deployment after its public model,
+        // every transcript records it, and infra/foundry marks those outputs not sensitive.
+        string[] recordedByDesign = ["FWA_GPT_DEPLOYMENT", "FWA_CLAUDE_DEPLOYMENT"];
+        var secrets = SecretsUsed().Except(recordedByDesign).ToList();
+        Assert.Contains("AZURE_CLIENT_ID", secrets);
+
+        AssertReadsFromEnv(Scan(Steps().ToList()), secrets);
+    }
+
+    /// <summary>The step names each secret with --literal-env and gets its value from its own env, as <c>${{ secrets.NAME }}</c>.</summary>
+    private static void AssertReadsFromEnv(YamlMappingNode step, IEnumerable<string> secrets)
+    {
+        var listed = LiteralEnv().Matches(Text(Get(step, "run"))).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var env = Assert.IsType<YamlMappingNode>(Get(step, "env"));
+        foreach (var secret in secrets)
+        {
+            Assert.True(listed.Contains(secret), $"The step does not pass --literal-env {secret}.");
+            Assert.Equal($"${{{{ secrets.{secret} }}}}", Text(Get(env, secret)));
+        }
+    }
+
+    /// <summary>Every secret the workflow names anywhere.</summary>
+    private static HashSet<string> SecretsUsed() =>
+        SecretReference().Matches(File.ReadAllText(WorkflowFile)).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+
+    private static YamlMappingNode Scan(List<YamlMappingNode> steps) =>
+        Single(steps, s => s.Children.ContainsKey("run") && Text(Get(s, "run")) is var run
+            && run.Contains("python -m fwa_eval.scan", StringComparison.Ordinal) && !run.Contains("--mask", StringComparison.Ordinal), "the secret scan");
 
     private static readonly string[] ExpectedPermissions = ["contents: read", "id-token: write"];
 
@@ -242,4 +314,13 @@ public sealed partial class WorkflowShapeTests
 
     [GeneratedRegex(@"^\s*(-\s+)?uses:\s+\S+@[0-9a-f]{40}\s+#\s+v\d+(\.\d+)*\s*$", RegexOptions.CultureInvariant)]
     private static partial Regex PinnedLineWithVersion();
+
+    [GeneratedRegex(@"\bsecrets\.([A-Za-z0-9_]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex SecretReference();
+
+    [GeneratedRegex(@"--literal-env\s+([A-Za-z0-9_]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex LiteralEnv();
+
+    [GeneratedRegex(@"timeout_seconds:\s*float\s*=\s*([0-9.]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex EvalPollingLimit();
 }

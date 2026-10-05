@@ -31,13 +31,16 @@ python -m fwa_eval eval    <dir>   # dataset, then the cloud evaluation, then <d
 python -m fwa_eval analyse <dir>   # the comparison, as JSON
 python -m fwa_eval report  <dir>   # writes <dir>/report.md and prints it
 python -m fwa_eval.scan    <dir> [--literal-env NAME ...]   # exit 1 if any file holds a secret or identifier
+python -m fwa_eval.scan    --mask [--literal-env NAME ...]  # ::add-mask:: lines for the job log
 ```
 
 The scan is what the live evaluation (`.github/workflows/live-eval.yml`) runs before it posts the
 report or uploads its outputs. It looks for tokens, JWTs, URLs, ARM paths, Azure and Anthropic
 hosts, emails, GUIDs and keys, and for the value of each `--literal-env` variable (for an
-endpoint, also its host and resource name). It prints each finding as `file:line: kind`, never
-the text it matched.
+endpoint, also its host and resource name; for a connection string, each of its values). It prints
+each finding as `file:line: kind`, never the text it matched. With `--mask` (and no directory) it
+scans nothing and prints `::add-mask::` for each of those values instead: the workflow's first step
+after checkout, so GitHub masks them in the job log too. It uses only the standard library.
 
 Run them from `eval/`, or put `eval/` on `PYTHONPATH`.
 
