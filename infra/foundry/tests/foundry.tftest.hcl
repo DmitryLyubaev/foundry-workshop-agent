@@ -122,8 +122,8 @@ run "deployments" {
   }
 
   assert {
-    condition     = azurerm_cognitive_deployment.gpt.sku[0].name == "GlobalStandard" && azurerm_cognitive_deployment.gpt.sku[0].capacity == 50
-    error_message = "The GPT deployment must be Global Standard with capacity 50 (thousands of TPM) by default."
+    condition     = azurerm_cognitive_deployment.gpt.sku[0].name == "GlobalStandard" && azurerm_cognitive_deployment.gpt.sku[0].capacity == 25
+    error_message = "The GPT deployment must be Global Standard with capacity 25 (thousands of TPM) by default."
   }
 
   assert {
@@ -142,8 +142,18 @@ run "deployments" {
   }
 
   assert {
+    condition     = azapi_resource.claude.body.properties.versionUpgradeOption == "NoAutoUpgrade"
+    error_message = "The Claude deployment must never upgrade on its own, as GPT's does not: the study runs on one model version throughout."
+  }
+
+  assert {
     condition     = azapi_resource.claude.body.sku.name == "GlobalStandard" && azapi_resource.claude.body.sku.capacity == 25
     error_message = "The Claude deployment must be Global Standard with capacity 25 (thousands of TPM) by default."
+  }
+
+  assert {
+    condition     = azurerm_cognitive_deployment.gpt.sku[0].capacity == azapi_resource.claude.body.sku.capacity
+    error_message = "Both deployments must have the same capacity: throttling waits count in a run's time, so unequal capacities would favour one engine."
   }
 
   assert {
@@ -157,18 +167,27 @@ run "deployments" {
   }
 }
 
-run "capacities_are_variables" {
+run "one_capacity_for_both_deployments" {
   command = plan
 
   variables {
-    gpt_capacity    = 10
-    claude_capacity = 5
+    capacity = 10
   }
 
   assert {
-    condition     = azurerm_cognitive_deployment.gpt.sku[0].capacity == 10 && azapi_resource.claude.body.sku.capacity == 5
-    error_message = "Each deployment's capacity must come from its variable."
+    condition     = azurerm_cognitive_deployment.gpt.sku[0].capacity == 10 && azapi_resource.claude.body.sku.capacity == 10
+    error_message = "Both deployments' capacity must come from the one capacity variable."
   }
+}
+
+run "capacity_stays_small" {
+  command = plan
+
+  variables {
+    capacity = 81
+  }
+
+  expect_failures = [var.capacity]
 }
 
 run "monitoring" {
@@ -187,6 +206,11 @@ run "monitoring" {
   assert {
     condition     = azurerm_log_analytics_workspace.foundry.local_authentication_enabled == false
     error_message = "The Log Analytics workspace's shared-key authentication must be off."
+  }
+
+  assert {
+    condition     = azurerm_log_analytics_workspace.foundry.daily_quota_gb == 1
+    error_message = "The Log Analytics workspace must cap its ingestion at 1 GB a day, so a runaway trace cannot grow the bill."
   }
 
   assert {

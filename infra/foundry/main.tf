@@ -74,9 +74,11 @@ resource "azurerm_cognitive_deployment" "gpt" {
     version = var.gpt_model_version
   }
 
+  # One capacity for both deployments: throttling waits count in a run's time, so unequal
+  # capacities would slow one engine and not the other.
   sku {
     name     = "GlobalStandard"
-    capacity = var.gpt_capacity
+    capacity = var.capacity
   }
 
   depends_on = [azurerm_cognitive_account_project.workshop]
@@ -85,7 +87,9 @@ resource "azurerm_cognitive_deployment" "gpt" {
 # Claude, through azapi: azurerm cannot pass modelProviderData (terraform-provider-azurerm#31140).
 # The first apply accepts Anthropic's Marketplace terms on the owner's behalf, with the details in
 # modelProviderData. The API version is the Claude starter kit's; azapi's embedded schema for it has
-# no modelProviderData, so schema validation is off, as the kit has it.
+# no modelProviderData, so schema validation is off, as the kit has it. The schema does have
+# versionUpgradeOption (checked offline with validation on and modelProviderData left out): like
+# GPT's, the deployment never upgrades on its own, and the version is pinned by claude_model_version.
 resource "azapi_resource" "claude" {
   type                      = "Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview"
   name                      = local.claude_model
@@ -95,7 +99,7 @@ resource "azapi_resource" "claude" {
   body = {
     sku = {
       name     = "GlobalStandard"
-      capacity = var.claude_capacity
+      capacity = var.capacity
     }
     properties = {
       model = {
@@ -103,6 +107,7 @@ resource "azapi_resource" "claude" {
         name    = local.claude_model
         version = var.claude_model_version
       }
+      versionUpgradeOption = "NoAutoUpgrade"
       modelProviderData = {
         organizationName = var.claude_provider_organization
         countryCode      = var.claude_provider_country_code
@@ -122,6 +127,10 @@ resource "azurerm_log_analytics_workspace" "foundry" {
   location            = azurerm_resource_group.foundry.location
   sku                 = "PerGB2018"
   retention_in_days   = 30
+
+  # A cap on ingestion, so a runaway trace export cannot grow the bill: the study's traces are a
+  # few MB. Past it, ingestion stops until the next day.
+  daily_quota_gb = 1
 
   # Queries and ingestion through Entra only, as for Application Insights.
   local_authentication_enabled = false
@@ -148,7 +157,8 @@ resource "azurerm_application_insights" "foundry" {
 # The project's Application Insights connection, which turns on Foundry's server-side tracing. It
 # authenticates as the project's managed identity (Entra) rather than with the connection string as
 # an API key, because local authentication is off; that identity gets Monitoring Metrics Publisher
-# below. A project allows one connection of this category.
+# below. A project allows one connection of this category. It is made after the deployments:
+# Foundry answers 409 to concurrent changes on one account.
 resource "azapi_resource" "appinsights_connection" {
   type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01"
   name      = "appinsights"
@@ -166,6 +176,8 @@ resource "azapi_resource" "appinsights_connection" {
       }
     }
   }
+
+  depends_on = [azapi_resource.claude]
 }
 
 # Foundry User: data actions on the project (prompt agents, responses, evaluations), and no right to

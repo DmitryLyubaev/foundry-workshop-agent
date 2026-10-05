@@ -23,7 +23,8 @@ provider "azurerm" {
   # Registration happens here, for both stacks: the owner applies this one and may register
   # namespaces. "none" is written out so that only this list is registered, whatever the provider's
   # default. Microsoft.AlertsManagement is there because creating Application Insights also creates
-  # its smart-detection alert rule.
+  # its smart-detection alert rule; Microsoft.SaaS and Microsoft.MarketplaceOrdering because the
+  # Claude deployment goes through Anthropic's Marketplace offer.
   resource_provider_registrations = "none"
   resource_providers_to_register = [
     "Microsoft.Storage",
@@ -31,6 +32,8 @@ provider "azurerm" {
     "Microsoft.OperationalInsights",
     "Microsoft.Insights",
     "Microsoft.AlertsManagement",
+    "Microsoft.SaaS",
+    "Microsoft.MarketplaceOrdering",
   ]
 
   # Storage data-plane calls authenticate with Entra ID, so they work on an account whose shared

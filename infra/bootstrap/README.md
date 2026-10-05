@@ -32,7 +32,11 @@ placeholder.
 - **CI gets nothing here.** Its Foundry roles are in `infra/foundry`. It cannot read any state or
   write role assignments.
 - **Resource providers are registered here,** for both stacks: Storage, CognitiveServices,
-  OperationalInsights, Insights and AlertsManagement. `infra/foundry` registers none.
+  OperationalInsights, Insights, AlertsManagement, and SaaS and MarketplaceOrdering for the Claude
+  deployment's Marketplace offer. `infra/foundry` registers none.
+- **Its state is local, and a secret.** `terraform.tfstate` stays in this folder, git-ignored, and
+  is the only copy of this stack's state: keep it. It holds the storage account's keys, which are
+  switched off, so treat it as a secret all the same.
 
 ## Inputs
 

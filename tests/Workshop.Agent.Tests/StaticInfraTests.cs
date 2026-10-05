@@ -189,6 +189,32 @@ public sealed partial class StaticInfraTests
     }
 
     [Fact]
+    public void Bootstrap_registers_every_namespace_both_stacks_need()
+    {
+        // A provider's configuration is beyond terraform test's reach, so the list is pinned here. The
+        // Claude deployment goes through the Marketplace: SaaS and MarketplaceOrdering are among them.
+        var bootstrap = File.ReadAllText(Path.Combine(RepoPaths.Infra, "bootstrap", "versions.tf"));
+        var list = Regex.Match(bootstrap, @"(?s)resource_providers_to_register\s*=\s*\[(?<items>.*?)\]");
+
+        Assert.True(list.Success, "bootstrap's azurerm provider must list resource_providers_to_register.");
+        Assert.Equal(
+            ["Microsoft.Storage", "Microsoft.CognitiveServices", "Microsoft.OperationalInsights", "Microsoft.Insights", "Microsoft.AlertsManagement", "Microsoft.SaaS", "Microsoft.MarketplaceOrdering"],
+            Regex.Matches(list.Groups["items"].Value, @"""(?<name>[^""]+)""").Select(m => m.Groups["name"].Value));
+        Assert.Matches(@"(?m)^\s*resource_provider_registrations\s*=\s*""none""\s*$", bootstrap);
+    }
+
+    [Fact]
+    public void The_insights_connection_waits_for_the_deployments()
+    {
+        // Foundry answers 409 to concurrent changes on one account: the connection comes after Claude, which comes after GPT.
+        var connection = Assert.Single(Blocks(Path.Combine(RepoPaths.Infra, "foundry", "main.tf"), "resource", "azapi_resource"), b => b.Name == "appinsights_connection");
+        var claude = Assert.Single(Blocks(Path.Combine(RepoPaths.Infra, "foundry", "main.tf"), "resource", "azapi_resource"), b => b.Name == "claude");
+
+        Assert.Matches(@"(?m)^\s*depends_on\s*=\s*\[\s*azapi_resource\.claude\s*\]", connection.Body);
+        Assert.Matches(@"(?m)^\s*depends_on\s*=\s*\[\s*azurerm_cognitive_deployment\.gpt\s*\]", claude.Body);
+    }
+
+    [Fact]
     public void There_is_exactly_one_federated_credential_and_it_names_the_environment()
     {
         var credentials = InfraFiles("*.tf")

@@ -16,15 +16,21 @@ placeholder.
 | Resource group | `rg-fwa-foundry` | `eastus2` |
 | Foundry resource | `fwa-<suffix>` | `azurerm_cognitive_account`, kind `AIServices`, SKU `S0`; custom subdomain `fwa-<suffix>`; `local_auth_enabled = false`; `project_management_enabled = true`; system-assigned identity |
 | Project | `fwa-workshop` | `azurerm_cognitive_account_project`, system-assigned identity |
-| GPT deployment | `gpt-5.6-luna` | `azurerm_cognitive_deployment`, Global Standard, capacity `gpt_capacity` (default 50, thousands of TPM), version pinned by `gpt_model_version`, `NoAutoUpgrade` |
-| Claude deployment | `claude-haiku-4-5` | `azapi_resource` `Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview`, format `Anthropic`, Global Standard, capacity `claude_capacity` (default 25), `modelProviderData` from the variables, schema validation off |
-| Log Analytics | `log-fwa-<suffix>` | `PerGB2018`, 30 days; local authentication off |
+| GPT deployment | `gpt-5.6-luna` | `azurerm_cognitive_deployment`, Global Standard, capacity `capacity` (default 25, thousands of TPM), version pinned by `gpt_model_version`, `NoAutoUpgrade` |
+| Claude deployment | `claude-haiku-4-5` | `azapi_resource` `Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview`, format `Anthropic`, Global Standard, the same `capacity`, version pinned by `claude_model_version`, `versionUpgradeOption = "NoAutoUpgrade"`, `modelProviderData` from the variables, schema validation off |
+| Log Analytics | `log-fwa-<suffix>` | `PerGB2018`, 30 days, ingestion capped at 1 GB a day (`daily_quota_gb`); local authentication off |
 | Application Insights | `appi-fwa-<suffix>` | workspace-based; `local_authentication_enabled = false` |
 | Connection | `appinsights` | `azapi_resource` `Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01` on the project: category `AppInsights`, auth `AAD` (the project's managed identity), target the Application Insights resource |
 | Role assignments | see below | |
 
 `<suffix>` is six random lowercase letters and digits, new on each create. Every resource that
 takes tags carries `project = foundry-workshop-agent`.
+
+**One capacity for both deployments.** Waits for throttling count in a run's time, so unequal
+capacities would slow one engine and not the other. The default, 25, is the Claude starter kit's
+default; runbook step 4.1 checks both models' quotas before the plan. **Neither deployment upgrades
+on its own:** the study runs on one model version of each throughout, and each transcript records
+the model each answer names.
 
 ### Roles
 
@@ -82,8 +88,7 @@ and the same for the others.
 | `claude_provider_organization` | the organisation name for Anthropic's Marketplace offer | none |
 | `claude_provider_country_code` | its two-letter country code, such as `AU` | none |
 | `claude_provider_industry` | its industry, in lowercase: `technology`, `finance`, `healthcare`, `education`, `retail`, `manufacturing`, `government`, `media` or `other` | none |
-| `gpt_capacity` | thousands of TPM | `50` |
-| `claude_capacity` | thousands of TPM | `25` |
+| `capacity` | each deployment's capacity, the same for both, in thousands of TPM (1 to 80) | `25` |
 | `claude_model_version` | the Claude version to pin | `1` |
 | `location` | the region | `eastus2` |
 
@@ -127,12 +132,13 @@ The plan must add a resource group, a random suffix, the Foundry resource, the p
 deployments, a Log Analytics workspace, Application Insights, the connection and seven role
 assignments, and nothing else.
 
-- **Deployments go one at a time.** The GPT deployment waits for the project and Claude waits for
-  GPT, because Foundry answers `409` to concurrent changes on one account.
+- **Deployments go one at a time.** The GPT deployment waits for the project, Claude waits for GPT,
+  and the Application Insights connection waits for Claude, because Foundry answers `409` to
+  concurrent changes on one account.
 - **A deployment can outlast Terraform's wait.** If the apply times out while a deployment is still
   provisioning, wait, then plan again: the plan shows whether it finished.
 - **An error with `715-123420` in it** most likely means no quota. Check the region's quota for the
-  model and lower the capacity.
+  model and lower `capacity`, which lowers both deployments together.
 - **A new role assignment can take a few minutes to take effect.** A `403` straight after the apply
   usually clears on its own.
 

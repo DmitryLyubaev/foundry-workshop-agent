@@ -47,14 +47,18 @@ variable "gpt_model_version" {
   }
 }
 
-variable "gpt_capacity" {
+# One capacity for both deployments (neutrality): a throttled run is a stop condition, but waits
+# within the 60 s budget still count in a run's time, so unequal capacities would slow one engine
+# and not the other. 25 is the Claude starter kit's default, the one value known to fit a new
+# subscription's Claude quota; runbook step 4.1 checks both models' quotas before the plan.
+variable "capacity" {
   type        = number
-  description = "Capacity of the gpt-5.6-luna Global Standard deployment, in thousands of tokens per minute: 50 is 50,000 TPM. It bounds how fast spend can grow, not how much."
-  default     = 50
+  description = "Capacity of each deployment, gpt-5.6-luna and claude-haiku-4-5 alike, in thousands of tokens per minute: 25 is 25,000 TPM. It bounds how fast spend can grow, not how much."
+  default     = 25
 
   validation {
-    condition     = var.gpt_capacity >= 1 && var.gpt_capacity <= 200 && floor(var.gpt_capacity) == var.gpt_capacity
-    error_message = "gpt_capacity must be a whole number from 1 to 200 (thousands of TPM): every capacity is small."
+    condition     = var.capacity >= 1 && var.capacity <= 80 && floor(var.capacity) == var.capacity
+    error_message = "capacity must be a whole number from 1 to 80 (thousands of TPM): every capacity is small."
   }
 }
 
@@ -62,17 +66,6 @@ variable "claude_model_version" {
   type        = string
   description = "The claude-haiku-4-5 model version to pin. Foundry's Claude models are listed as version 1 (the Claude starter kit's default)."
   default     = "1"
-}
-
-variable "claude_capacity" {
-  type        = number
-  description = "Capacity of the claude-haiku-4-5 Global Standard deployment, in thousands of tokens per minute: 25 is 25,000 TPM (the Claude starter kit's default)."
-  default     = 25
-
-  validation {
-    condition     = var.claude_capacity >= 1 && var.claude_capacity <= 80 && floor(var.claude_capacity) == var.claude_capacity
-    error_message = "claude_capacity must be a whole number from 1 to 80 (thousands of TPM): every capacity is small."
-  }
 }
 
 # modelProviderData. The first apply of the Claude deployment accepts Anthropic's Marketplace terms
