@@ -95,8 +95,9 @@ public static class Freeze
         {
             frozen = JsonSerializer.Deserialize<FreezeFile>(File.ReadAllText(path), Json);
         }
-        catch (JsonException e)
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
+            // Not a stack trace: a freeze that cannot be read stops the run as any broken freeze does.
             return $"The freeze is broken: {FileName} cannot be read: {e.Message}";
         }
 

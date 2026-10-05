@@ -81,6 +81,18 @@ public sealed class ClaudeEngineTests
         Assert.Equal("There are 4 laptop bat", result.FinalReply);
     }
 
+    [Fact]
+    public async Task Each_call_records_the_model_the_service_says_answered()
+    {
+        // The deployment's name is the code's; the version behind it is the service's to say.
+        var service = new FakeModelService(() => FakeModelService.Json(200, Recorded.ClaudeReply("msg_1", "Done.").Replace("\"model\":\"claude-haiku-4-5\"", "\"model\":\"claude-haiku-4-5-20251001\"", StringComparison.Ordinal)));
+
+        var result = await Engine(service, new FakeCredential()).RunAsync("Look.", Tools, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal("claude-haiku-4-5-20251001", Assert.Single(result.Calls).ModelId);
+    }
+
     [Theory]
     [InlineData("429 Retry-After", 7000)]
     [InlineData("429 retry-after-ms", 1500)]
@@ -100,6 +112,7 @@ public sealed class ClaudeEngineTests
     [InlineData("500")]
     [InlineData("529")]
     [InlineData("408")]
+    [InlineData("404")]
     [InlineData("network")]
     [InlineData("timeout")]
     public async Task Service_failures_are_infra_and_not_retried(string kind)
@@ -136,7 +149,6 @@ public sealed class ClaudeEngineTests
 
     [Theory]
     [InlineData("400", 400, "invalid_request_error")]
-    [InlineData("404", 404, "not_found_error")]
     public async Task Other_4xx_are_the_models_failure_with_their_code(string kind, int status, string code)
     {
         var service = new FakeModelService(Answer(kind));
@@ -153,7 +165,8 @@ public sealed class ClaudeEngineTests
     [InlineData("429 too long", "throttled", null)]
     [InlineData("content policy", "content_filtered", null)]
     [InlineData("400", "engine_error", "invalid_request_error")]
-    [InlineData("404", "engine_error", "not_found_error")]
+    // A missing deployment is the setup's fault, not the model's: dropped as infrastructure.
+    [InlineData("404", "service_error", "not_found_error")]
     public async Task Each_error_ends_the_run_with_its_outcome(string kind, string outcome, string? inError)
     {
         var service = new FakeModelService(Answer(kind));

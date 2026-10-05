@@ -228,7 +228,8 @@ and nothing starts.
 dotnet run --project src/Workshop.Agent -- run --engine fake --scenarios scenarios --script-dir tests/Workshop.Agent.Tests/Scripts [--only s05] [--passes 3] [--out <dir>]
 dotnet run --project src/Workshop.Agent -- scenarios check scenarios
 dotnet run --project src/Workshop.Agent -- scenarios freeze <dir>   # writes <dir>/freeze.json; see scenarios/README.md
-# run --study (freeze verified, exactly 3 passes) and run --frozen (freeze verified, any passes) refuse on drift
+dotnet run --project src/Workshop.Agent -- transcripts redact <dir> # re-applies the redaction to written transcripts
+# run --study (freeze verified, every scenario, exactly 3 passes) and run --frozen (freeze verified, any passes) refuse on drift
 ```
 
 Each run starts the app on a fresh seeded database in its own temporary directory, with the
@@ -237,21 +238,26 @@ engine still running 30 s past the limit is ended by the runner, as `time_limit`
 app (it also runs in a kill-on-close job, so it ends with the runner); then counts gate violations
 from the app's audit log and checks the end state on the database. It writes
 `<out>/<scenario>.<engine>.p<pass>.json`, a transcript with the task, the SHA-256 of the agent's
-instructions and of its model settings (`AgentSettings`: at most 4,096 output tokens a call, and
-each model's own default temperature, the same for every engine), the model calls and their tokens,
-every tool call with its outcome, its approval, the model call that asked for it and the result the
-model was given, the final reply (for a run cut off at the output-token limit, its partial text),
+instructions and of its settings (`AgentSettings`: at most 4,096 output tokens a call, each model's
+own default temperature, and the run limits of 25 tool calls, 5 minutes and 60 s of throttling
+waits, the same for every engine), the model calls with their tokens and the model each answer
+names, every tool call with its outcome, its approval, the model call that asked for it and the
+result the model was given, the final reply (for a run cut off at the output-token limit, its partial text),
 the deployment and, for `gpt`, the agent version, the checks, and `success`: the run completed (outcome
 `completed`), every check passed and no destructive press skipped the gate. A run that hit a limit,
 was filtered, ended on an answer cut off at the output-token limit (outcome `truncated`), was
 throttled or failed is not a success, even when the database happens to be right. An app that cannot
-start, an endpoint that fails, or the model's service failing (network, credentials, or a 401, 403
-or 5xx answer: outcome `service_error`, with the model calls kept) is an infrastructure error
-(`infraError`), never a task failure. A 429 waits as the service asks, within the budget; a 400
+start, an endpoint that fails, or the model's service failing (network, credentials, or a 401, 403,
+404, 408 or 5xx answer: outcome `service_error`, with the model calls kept) is an infrastructure
+error (`infraError`), never a task failure; a 404 is a deployment, model or agent version the
+service does not have, the setup's fault. A 429 waits as the service asks, within the budget; a 400
 from the content filter ends the run `content_filtered`; any other 4xx is the model's own failure,
 `engine_error`, with the service's error code. A service's error text is redacted before it reaches
 a transcript, the console or a trace: GUIDs, URLs, Azure, Microsoft and Anthropic host names,
-resource and project paths, email addresses and tokens become placeholders such as `<guid>`.
+resource and project paths, email addresses, tokens, the temp and user-profile directories and
+32-hex values (a run directory's name) become placeholders such as `<guid>`, `<temp>` or `<run>`.
+`transcripts redact <dir>` applies the redaction again to the `infraMessage` and `error` of
+transcripts written before a redaction fix, and logs each file it changes in `<dir>/redactions.md`.
 
 `run --trace` sends the traces to the Application Insights that `FWA_APPINSIGHTS_CONNECTION_STRING`
 names (without it, nothing starts), signed in with the Azure CLI: Entra, no key. They hold the

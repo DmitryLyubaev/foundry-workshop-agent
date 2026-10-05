@@ -42,8 +42,14 @@ public static class PromptAgentProvisioner
     // The fields the code sets, compared on their own; any other must be at its default.
     private static readonly string[] Compared = ["kind", "model", "instructions", "tools"];
 
-    // The fields of a function tool the code sets; strict is null by choice (to be confirmed live).
+    // The fields of a function tool the code sets; strict is compared on its own, against StrictMode.
     private static readonly string[] ToolFields = ["type", "name", "description", "parameters", "strict"];
+
+    /// <summary>
+    /// The code's strict mode for every tool: null, unset, so neither engine's tool calls are checked
+    /// against their schemas by the service. Strict mode on GPT alone would make the engines differ.
+    /// </summary>
+    internal static bool? StrictMode => null;
 
     /// <summary>
     /// Reuses the agent's latest version when it holds the code's definition, and creates a new
@@ -88,7 +94,7 @@ public static class PromptAgentProvisioner
             definition.Tools.Add(ResponseTool.CreateFunctionTool(
                 tool.Name,
                 BinaryData.FromString(ToolSchemas.Parameters(tool).GetRawText()),
-                strictModeEnabled: null,
+                strictModeEnabled: StrictMode,
                 tool.Description));
         }
 
@@ -176,7 +182,8 @@ public static class PromptAgentProvisioner
             if (tool.ValueKind != JsonValueKind.Object
                 || Text(tool, "type") != "function"
                 || Text(tool, "name") is not { } name
-                || tool.EnumerateObject().Any(p => !ToolFields.Contains(p.Name, StringComparer.Ordinal) && !IsDefault(p.Name, p.Value)))
+                || tool.EnumerateObject().Any(p => !ToolFields.Contains(p.Name, StringComparer.Ordinal) && !IsDefault(p.Name, p.Value))
+                || !StrictIsTheCodes(tool))
             {
                 return null;
             }
@@ -189,6 +196,22 @@ public static class PromptAgentProvisioner
 
         return ToolSchemas.Sha256(entries);
     }
+
+    /// <summary>
+    /// Whether a tool's <c>strict</c> is the code's (<see cref="StrictMode"/>): absent or null for
+    /// null, and exactly <see langword="true"/> or <see langword="false"/> otherwise. A portal edit
+    /// that turns strict mode on, or any other value, is a difference.
+    /// </summary>
+    private static bool StrictIsTheCodes(JsonElement tool) =>
+        !tool.TryGetProperty("strict", out var strict)
+            ? StrictMode is null
+            : strict.ValueKind switch
+            {
+                JsonValueKind.Null => StrictMode is null,
+                JsonValueKind.True => StrictMode == true,
+                JsonValueKind.False => StrictMode == false,
+                _ => false,
+            };
 
     /// <summary>A result's body as JSON, as the service sent it.</summary>
     private static JsonElement Raw(ClientResult result)

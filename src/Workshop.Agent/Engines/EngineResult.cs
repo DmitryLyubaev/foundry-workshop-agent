@@ -39,7 +39,8 @@ public static class EngineOutcome
     public const string Throttled = "throttled";
 
     /// <summary>
-    /// The model's service failed: its network, its credentials, or its server (401, 403 or 5xx).
+    /// The model's service failed: its network, its credentials, its server (401, 403, 408 or 5xx),
+    /// or a deployment, model or agent version it does not have (404).
     /// Not the model's doing, so the runner makes the run an infrastructure error (spec §5.4).
     /// </summary>
     public const string ServiceError = "service_error";

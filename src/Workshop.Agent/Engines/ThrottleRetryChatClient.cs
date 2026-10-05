@@ -12,7 +12,8 @@ namespace Workshop.Agent.Engines;
 /// </summary>
 public sealed class ThrottleRetryChatClient : DelegatingChatClient
 {
-    public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(60);
+    /// <summary>The study's budget, <see cref="AgentSettings.ThrottleBudget"/>, which the freeze covers.</summary>
+    public static readonly TimeSpan DefaultBudget = AgentSettings.ThrottleBudget;
 
     public static readonly TimeSpan MinimumWait = TimeSpan.FromSeconds(1);
 

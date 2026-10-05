@@ -12,7 +12,7 @@ namespace Workshop.Agent.Engines;
 /// <list type="bullet">
 /// <item><see cref="HttpRequestException"/>, or the Anthropic SDK's <see cref="AnthropicIOException"/>: the network, DNS or TLS.</item>
 /// <item>Azure.Identity's <see cref="AuthenticationFailedException"/>, which <see cref="CredentialUnavailableException"/> derives from: the credentials.</item>
-/// <item>A 401, 403, 408 or 5xx answer: System.ClientModel's <see cref="ClientResultException"/> (the
+/// <item>A 401, 403, 404, 408 or 5xx answer: System.ClientModel's <see cref="ClientResultException"/> (the
 /// Foundry project's SDK), Azure.Core's <see cref="RequestFailedException"/>, or the Anthropic SDK's
 /// <see cref="AnthropicApiException"/>.</item>
 /// <item>A call's own time limit: <see cref="TimeoutException"/>, or an <see cref="OperationCanceledException"/>
@@ -41,10 +41,11 @@ internal static class ServiceFailure
     }
 
     /// <summary>
-    /// Whether an HTTP status is the service's failure rather than the request's: 401, 403, 408 (the
-    /// service timed the request out), or 500 and above.
+    /// Whether an HTTP status is the service's failure rather than the request's: 401, 403, 404 (no
+    /// such deployment, model or agent version: the setup's fault, which would otherwise score one
+    /// engine 0 on every run), 408 (the service timed the request out), or 500 and above.
     /// </summary>
-    public static bool IsServiceStatus(int status) => status is 401 or 403 or 408 or >= 500;
+    public static bool IsServiceStatus(int status) => status is 401 or 403 or 404 or 408 or >= 500;
 
     private static bool IsOne(Exception e) => e switch
     {

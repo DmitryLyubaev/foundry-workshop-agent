@@ -97,6 +97,18 @@ public sealed class GptEngineTests
         Assert.Null(result.FinalReply);
     }
 
+    [Fact]
+    public async Task Each_call_records_the_model_the_service_says_answered()
+    {
+        // The deployment's name is the code's; the version behind it is the service's to say.
+        var service = new FakeModelService(() => FakeModelService.Json(200, Recorded.GptReply("resp_1", "Done.").Replace("\"model\":\"gpt-5.6-luna\"", "\"model\":\"gpt-5.6-luna-2026-01-01\"", StringComparison.Ordinal)));
+
+        var result = await Engine(service, new FakeCredential()).RunAsync("Look.", Tools, Cancel);
+
+        Assert.Equal(EngineOutcome.Completed, result.Outcome);
+        Assert.Equal("gpt-5.6-luna-2026-01-01", Assert.Single(result.Calls).ModelId);
+    }
+
     [Theory]
     [InlineData("429 Retry-After", 7000)]
     [InlineData("429 retry-after-ms", 1500)]
@@ -116,6 +128,7 @@ public sealed class GptEngineTests
     [InlineData("500")]
     [InlineData("503")]
     [InlineData("408")]
+    [InlineData("404")]
     [InlineData("network")]
     [InlineData("timeout")]
     public async Task Service_failures_are_infra_and_not_retried(string kind)
@@ -153,7 +166,6 @@ public sealed class GptEngineTests
 
     [Theory]
     [InlineData("400", 400, "invalid_value")]
-    [InlineData("404", 404, "DeploymentNotFound")]
     public async Task Other_4xx_are_the_models_failure_with_their_code(string kind, int status, string code)
     {
         var service = new FakeModelService(Answer(kind));
@@ -170,7 +182,8 @@ public sealed class GptEngineTests
     [InlineData("429 too long", "throttled", null)]
     [InlineData("content filter", "content_filtered", null)]
     [InlineData("400", "engine_error", "invalid_value")]
-    [InlineData("404", "engine_error", "DeploymentNotFound")]
+    // A missing deployment or agent version is the setup's fault, not the model's: dropped as infrastructure.
+    [InlineData("404", "service_error", "DeploymentNotFound")]
     public async Task Each_error_ends_the_run_with_its_outcome(string kind, string outcome, string? inError)
     {
         var service = new FakeModelService(Answer(kind));

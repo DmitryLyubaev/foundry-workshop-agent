@@ -111,6 +111,29 @@ public sealed class ProgramTests
         Assert.Contains("Workshop.Agent run --engine fake|gpt|claude --scenarios <dir>", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--out", "--study")]
+    [InlineData("--out", "--frozen")]
+    [InlineData("--script-dir", "--trace")]
+    [InlineData("--only", "--x")]
+    public async Task An_option_never_takes_a_flag_or_an_option_as_its_value(string option, string value)
+    {
+        // `--out --study` would otherwise run one unverified pass into a directory named --study.
+        string[] args = ["run", "--engine", "fake", "--scenarios", RepoPaths.Scenarios, "--only", "s05", "--script-dir", RepoPaths.Scripts];
+        args = option == "--only"
+            ? ["run", "--engine", "fake", "--scenarios", RepoPaths.Scenarios, "--script-dir", RepoPaths.Scripts, option, value]
+            : option == "--script-dir"
+                ? ["run", "--engine", "fake", "--scenarios", RepoPaths.Scenarios, "--only", "s05", option, value]
+                : [.. args, option, value];
+
+        var (code, output, error) = await Run(args);
+
+        Assert.Equal(2, code);
+        Assert.Equal("", output);
+        Assert.Contains("Workshop.Agent run --engine fake|gpt|claude --scenarios <dir>", error, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(value));
+    }
+
     [Fact]
     public async Task Fake_needs_its_scripts()
     {

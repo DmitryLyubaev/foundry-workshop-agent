@@ -79,6 +79,8 @@ public sealed class PromptAgentProvisionerTests
     [InlineData("rai_config")]
     [InlineData("a field the SDK does not know")]
     [InlineData("a tool field the code does not set")]
+    [InlineData("strict true")]
+    [InlineData("strict false")]
     public async Task A_latest_version_that_differs_gets_a_new_version(string difference)
     {
         var latest = FakeAgentService.CodeDefinition();
@@ -118,6 +120,46 @@ public sealed class PromptAgentProvisionerTests
         Assert.Equal(["kind", "model", "instructions", "tools"], created.Select(p => p.Key));
         Assert.Equal(AgentInstructions.Sha256, agent.InstructionsSha256);
         Assert.Equal(ToolSchemas.Sha256(WorkshopTools.Declarations), agent.ToolsSha256);
+    }
+
+    [Fact]
+    public async Task A_tool_without_strict_matches_the_codes_null()
+    {
+        // The code leaves strict unset (null): a service that drops the field holds the same tool.
+        var latest = FakeAgentService.CodeDefinition();
+        foreach (var tool in latest["tools"]!.AsArray())
+        {
+            tool!.AsObject().Remove("strict");
+        }
+
+        var agents = new FakeAgentService(latest);
+        var service = new FakeModelService(agents.Answer);
+
+        var agent = await Ensure(service, new FakeCredential());
+
+        Assert.Equal("1", agent.Version);
+        Assert.Empty(agents.Created);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_version_that_reads_back_with_strict_set_is_drift(bool strict)
+    {
+        // Strict mode changes how GPT's tool calls are checked, which Claude's engine does not do: only the code's null is neutral.
+        var agents = new FakeAgentService
+        {
+            ReadBack = version =>
+            {
+                version["definition"]!["tools"]![3]!["strict"] = strict;
+                return version;
+            },
+        };
+        var service = new FakeModelService(agents.Answer);
+
+        var e = await Assert.ThrowsAsync<AgentDriftException>(() => Ensure(service, new FakeCredential()));
+
+        Assert.Equal("The prompt agent 'fwa-workshop-agent' version 1 does not hold the code's tools.", e.Message);
     }
 
     [Fact]
@@ -240,6 +282,8 @@ public sealed class PromptAgentProvisionerTests
         "rai_config" => d => d["rai_config"] = new JsonObject { ["rai_policy_name"] = "Microsoft.DefaultV2" },
         "a field the SDK does not know" => d => d["memory"] = new JsonObject { ["enabled"] = true },
         "a tool field the code does not set" => d => d["tools"]![0]!["defer_loading"] = true,
+        "strict true" => d => d["tools"]![1]!["strict"] = true,
+        "strict false" => d => d["tools"]![1]!["strict"] = false,
         _ => null,
     };
 

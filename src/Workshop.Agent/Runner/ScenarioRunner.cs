@@ -21,8 +21,8 @@ namespace Workshop.Agent.Runner;
 /// </summary>
 public sealed class ScenarioRunner
 {
-    /// <summary>The time limit of one run (spec §4.4).</summary>
-    public static readonly TimeSpan TimeLimit = TimeSpan.FromMinutes(5);
+    /// <summary>The time limit of one run (spec §4.4), <see cref="AgentSettings.TimeLimit"/>, which the freeze covers.</summary>
+    public static readonly TimeSpan TimeLimit = AgentSettings.TimeLimit;
 
     /// <summary>
     /// How long past its time limit the runner waits for an engine before it ends the run itself,

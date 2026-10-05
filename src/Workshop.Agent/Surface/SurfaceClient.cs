@@ -23,8 +23,9 @@ public sealed class SurfaceClient : IDisposable
     private readonly List<Screen> seen = [];
 
     public SurfaceClient(int port, string token)
-        // No proxy: a system proxy must never see the token, and loopback needs none.
-        : this(port, token, new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(3) })
+        // No proxy: a system proxy must never see the token, and loopback needs none. The arguments
+        // are checked first, so a bad one throws before a handler exists that nothing would dispose.
+        : this(Checked(port, token), token, new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(3) })
     {
     }
 
@@ -42,6 +43,14 @@ public sealed class SurfaceClient : IDisposable
             Timeout = RequestTimeout,
         };
         http.DefaultRequestHeaders.Add(TokenHeader, token);
+    }
+
+    private static int Checked(int port, string token)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
+        ArgumentException.ThrowIfNullOrWhiteSpace(token);
+        return port;
     }
 
     /// <summary>

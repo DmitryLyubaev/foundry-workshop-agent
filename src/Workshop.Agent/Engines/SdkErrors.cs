@@ -12,7 +12,7 @@ namespace Workshop.Agent.Engines;
 /// Maps the model SDKs' errors to what the engine makes of them (Review Focus 1):
 /// <list type="table">
 /// <item><term>429</term><description><see cref="ThrottledException"/>, with the wait the service asks for (<c>retry-after-ms</c>, else <c>Retry-After</c>).</description></item>
-/// <item><term>401, 403, 5xx, the network, a timeout, the credentials</term><description>left as thrown: <see cref="ServiceFailure"/> knows them, and the run is an infrastructure error.</description></item>
+/// <item><term>401, 403, 404, 408, 5xx, the network, a timeout, the credentials</term><description>left as thrown: <see cref="ServiceFailure"/> knows them, and the run is an infrastructure error.</description></item>
 /// <item><term>400 from the content filter</term><description><see cref="ContentFilteredException"/>: Azure's <c>content_filter</c> code, or an Anthropic <c>invalid_request_error</c> naming a content policy.</description></item>
 /// <item><term>any other 4xx</term><description><see cref="ModelRequestException"/>, carrying the body's error code: the model's own failure, <c>engine_error</c>.</description></item>
 /// </list>
@@ -222,8 +222,9 @@ public sealed class ContentFilteredException(string? code, string message) : Exc
 }
 
 /// <summary>
-/// The model's service refused the request with a 4xx other than 401, 403 or 429: the model's own
-/// failure (<see cref="EngineOutcome.EngineError"/>), with the body's error code in the message.
+/// The model's service refused the request with a 4xx other than 401, 403, 404, 408 or 429, and not
+/// for its content filter: the model's own failure (<see cref="EngineOutcome.EngineError"/>), with
+/// the body's error code in the message, which the report counts by.
 /// </summary>
 public sealed class ModelRequestException(int status, string? code, string? message, Exception inner)
     : Exception(string.Create(CultureInfo.InvariantCulture, $"HTTP {status} ({code ?? "no error code"}): {message ?? "the service gave no message."}"), inner)

@@ -13,10 +13,12 @@ namespace Workshop.Agent;
 /// <summary>
 /// The command line: <c>run</c> runs scenarios through the runner and writes their transcripts;
 /// <c>scenarios check</c> reads a scenario set and reports its first problem; <c>scenarios freeze</c>
-/// writes the set's <c>freeze.json</c>. Exit codes: 0 done; 1 a run met an infrastructure error, the
-/// scenario set is invalid, the freeze is missing or broken, the app is missing, or the GPT prompt
-/// agent could not be made to hold the code's definition; 2 a bad command line, a Foundry setting
-/// missing, or <c>--trace</c> without a usable Application Insights connection string.
+/// writes the set's <c>freeze.json</c>; <c>transcripts redact</c> applies <see cref="Redaction"/> again
+/// to transcripts already written. Exit codes: 0 done; 1 a run met an infrastructure error, the
+/// scenario set is invalid, the freeze is missing or broken, the app is missing, the GPT prompt
+/// agent could not be made to hold the code's definition, or the transcripts could not be read or
+/// written; 2 a bad command line, a Foundry setting missing, or <c>--trace</c> without a usable
+/// Application Insights connection string.
 /// </summary>
 internal static class Program
 {
@@ -27,6 +29,7 @@ internal static class Program
                              [--study | --frozen] [--trace [--trace-content]]
           Workshop.Agent scenarios check <dir>
           Workshop.Agent scenarios freeze <dir>
+          Workshop.Agent transcripts redact <dir>
 
           --engine      fake runs each scenario's scripted model from <script-dir>/<id>.correct.json;
                         gpt runs the Foundry prompt agent, claude runs Claude in Foundry, both signed in with the Azure CLI.
@@ -37,14 +40,17 @@ internal static class Program
           --script-dir  the fake engine's scripts.
           --app         Workshop.App.exe (default: the one built beside this solution).
           --study       a study run: <scenarios>/freeze.json must match the scenarios, instructions, settings, tools and
-                        decision rule, or no run starts; runs exactly 3 passes, in an output directory named with the freeze's short hash.
-          --frozen      the same check with any number of passes and the output directory as given.
+                        decision rule, or no run starts; runs every scenario, exactly 3 passes, in an output directory named with
+                        the freeze's short hash. Not with --only or --passes.
+          --frozen      the same check with any scenarios, any number of passes and the output directory as given.
           --trace       sends the traces to the Application Insights FWA_APPINSIGHTS_CONNECTION_STRING names,
                         signed in with the Azure CLI; without message content.
           --trace-content  also puts the messages, tool arguments and tool results in the traces: for development
                         only, never with --study or --frozen.
           scenarios freeze  writes <dir>/freeze.json: a SHA-256 for each scenario and for the instructions, settings and tools,
                         and the decision rule. It does not overwrite a freeze.
+          transcripts redact  applies the redaction again to the infraMessage and error of every transcript under <dir>,
+                        for transcripts written before a redaction fix, and logs each file it changed in <dir>/redactions.md.
 
           gpt and claude read Foundry's settings from these options, or else from FWA_PROJECT_ENDPOINT,
           FWA_RESOURCE_ENDPOINT, FWA_GPT_DEPLOYMENT, FWA_CLAUDE_DEPLOYMENT and FWA_AGENT_NAME
@@ -105,6 +111,8 @@ internal static class Program
                 return await CheckScenariosAsync(dir, output, error).ConfigureAwait(false);
             case ["scenarios", "freeze", var dir]:
                 return await FreezeScenariosAsync(dir, output, error).ConfigureAwait(false);
+            case ["transcripts", "redact", var dir]:
+                return await RedactTranscriptsAsync(dir, output, error).ConfigureAwait(false);
             default:
                 await error.WriteLineAsync(Usage).ConfigureAwait(false);
                 return BadCommandLine;
@@ -142,6 +150,29 @@ internal static class Program
         }
     }
 
+    private static async Task<int> RedactTranscriptsAsync(string dir, TextWriter output, TextWriter error)
+    {
+        if (!Directory.Exists(dir))
+        {
+            await error.WriteLineAsync($"There is no directory '{dir}' with transcripts to redact.").ConfigureAwait(false);
+            return Failed;
+        }
+
+        try
+        {
+            var (changed, transcripts) = TranscriptRedaction.Apply(dir, DateOnly.FromDateTime(DateTime.UtcNow));
+            await output.WriteLineAsync(changed == 0
+                ? string.Create(CultureInfo.InvariantCulture, $"Nothing to re-redact in {transcripts} transcripts.")
+                : string.Create(CultureInfo.InvariantCulture, $"Re-redacted {changed} of {transcripts} transcripts; each is logged in {Path.Combine(dir, TranscriptRedaction.LogFileName)}.")).ConfigureAwait(false);
+            return Done;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            await error.WriteLineAsync(Redaction.Describe(e, fullName: false)).ConfigureAwait(false);
+            return Failed;
+        }
+    }
+
     private static async Task<int> RunScenariosAsync(string[] args, TextWriter output, TextWriter error, Func<string, string?> environment, CancellationToken ct)
     {
         if (ReadOptions(args) is not { } options
@@ -166,6 +197,13 @@ internal static class Program
         var study = options.ContainsKey(StudyFlag);
         if (study)
         {
+            // Every scenario: a directory named for the study must hold the whole study, never a part of it.
+            if (options.ContainsKey("--only"))
+            {
+                await error.WriteLineAsync($"{StudyFlag} runs every scenario; leave out --only, or use {FrozenFlag} to run one.").ConfigureAwait(false);
+                return BadCommandLine;
+            }
+
             // Exactly the pre-registered passes: a study of 1 or 5 passes would not be the one registered.
             if (options.ContainsKey("--passes") && passes != DecisionRule.PreRegistered.Passes)
             {
@@ -296,8 +334,8 @@ internal static class Program
         var outDir = options.TryGetValue("--out", out var given) ? given : DefaultOutDir();
         if (study)
         {
-            // The directory names the freeze its transcripts were run under.
-            outDir = $"{outDir}-{Freeze.ShortHash(scenarioDir)}";
+            // The directory names the freeze its transcripts were run under, beside --out even when it ends in a separator.
+            outDir = $"{Path.TrimEndingDirectorySeparator(outDir)}-{Freeze.ShortHash(scenarioDir)}";
         }
 
         var runner = new ScenarioRunner(appExe, engineFor, ScenarioRunner.GateFor) { FrozenScenarios = frozen ? scenarioDir : null };
@@ -428,7 +466,11 @@ internal static class Program
         return string.Create(CultureInfo.InvariantCulture, $"{t.ScenarioId} p{t.Pass}: {verdict} ({t.Outcome}, {t.Tools.Count} tool calls, {t.GateViolations} gate violations, {t.Ms / 1000:0.0} s)");
     }
 
-    /// <summary>The options as name and value, or null when one is unknown, repeated or has no value.</summary>
+    /// <summary>
+    /// The options as name and value, or null when one is unknown, repeated or has no value. A value
+    /// that starts with <c>--</c> is a flag or an option, not a value: <c>--out --study</c> must not
+    /// run one unverified pass into a directory named <c>--study</c>.
+    /// </summary>
     private static Dictionary<string, string>? ReadOptions(string[] args)
     {
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -445,7 +487,10 @@ internal static class Program
                 continue;
             }
 
-            if (!RunOptions.Contains(args[i], StringComparer.Ordinal) || i + 1 >= args.Length || !options.TryAdd(args[i], args[i + 1]))
+            if (!RunOptions.Contains(args[i], StringComparer.Ordinal)
+                || i + 1 >= args.Length
+                || args[i + 1].StartsWith("--", StringComparison.Ordinal)
+                || !options.TryAdd(args[i], args[i + 1]))
             {
                 return null;
             }

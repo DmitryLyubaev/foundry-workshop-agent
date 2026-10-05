@@ -204,12 +204,13 @@ public sealed class FreezeTests
     [Fact]
     public async Task Study_runs_when_everything_matches()
     {
+        // A study runs every scenario of its set, so the set frozen here is s05 alone.
         using var run = TempRun.Create();
-        var scenarios = await Frozen(run);
+        var scenarios = await Frozen(run, only: "s05");
         var shortHash = Freeze.ShortHash(scenarios);
         var outDir = Path.Combine(run.Directory, "out");
 
-        var (code, output, error) = await Run("run", "--engine", "fake", "--scenarios", scenarios, "--only", "s05", "--study", "--script-dir", RepoPaths.Scripts, "--out", outDir);
+        var (code, output, error) = await Run("run", "--engine", "fake", "--scenarios", scenarios, "--study", "--script-dir", RepoPaths.Scripts, "--out", outDir);
 
         Assert.Equal(0, code);
         Assert.Equal("", error);
@@ -219,6 +220,61 @@ public sealed class FreezeTests
         Assert.Contains($"Transcripts go to {studyDir}", output, StringComparison.Ordinal);
         Assert.Equal(["s05.fake.p1.json", "s05.fake.p2.json", "s05.fake.p3.json"], Directory.GetFiles(studyDir).Select(Path.GetFileName).Order(StringComparer.Ordinal));
         Assert.False(Directory.Exists(outDir));
+    }
+
+    [Theory]
+    [InlineData("\\")]
+    [InlineData("/")]
+    public async Task Study_names_its_directory_beside_an_out_given_with_a_trailing_separator(string separator)
+    {
+        using var run = TempRun.Create();
+        var scenarios = await Frozen(run, only: "s05");
+        var outDir = Path.Combine(run.Directory, "out");
+
+        var (code, output, error) = await Run("run", "--engine", "fake", "--scenarios", scenarios, "--study", "--script-dir", RepoPaths.Scripts, "--out", outDir + separator);
+
+        Assert.Equal(0, code);
+        Assert.Equal("", error);
+        var studyDir = $"{outDir}-{Freeze.ShortHash(scenarios)}";
+        Assert.Contains($"Transcripts go to {studyDir}{Environment.NewLine}", output, StringComparison.Ordinal);
+        Assert.Equal(3, Directory.GetFiles(studyDir).Length);
+        Assert.False(Directory.Exists(outDir));
+    }
+
+    [Fact]
+    public async Task Study_refuses_only_and_points_to_frozen()
+    {
+        // A directory named for the study must hold the whole study, never a part of it.
+        using var run = TempRun.Create();
+        var scenarios = await Frozen(run);
+        var outDir = Path.Combine(run.Directory, "out");
+
+        var (code, output, error) = await Run(_ => null, "run", "--engine", "gpt", "--scenarios", scenarios, "--study", "--only", "s05", "--out", outDir);
+
+        Assert.Equal(2, code);
+        Assert.Equal("", output);
+        Assert.Equal("--study runs every scenario; leave out --only, or use --frozen to run one.", error.Trim());
+        Assert.Empty(Directory.GetDirectories(run.Directory, "out*"));
+    }
+
+    [Fact]
+    public async Task A_freeze_that_cannot_be_read_is_broken_not_a_crash()
+    {
+        using var run = TempRun.Create();
+        var scenarios = await Frozen(run);
+
+        // Held open with no sharing: reading it fails as a locked or unreadable file would.
+        using (new FileStream(Path.Combine(scenarios, Freeze.FileName), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.StartsWith("The freeze is broken: freeze.json cannot be read: ", Freeze.Verify(scenarios), StringComparison.Ordinal);
+
+            var (code, output, error) = await Run(_ => null, "run", "--engine", "gpt", "--scenarios", scenarios, "--frozen");
+
+            Assert.Equal(1, code);
+            Assert.Equal("", output);
+            Assert.StartsWith("The freeze is broken: freeze.json cannot be read: ", error, StringComparison.Ordinal);
+            Assert.Contains("No run starts.", error, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -274,12 +330,47 @@ public sealed class FreezeTests
         Assert.StartsWith("The freeze is broken: s05.json was edited", e.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A copy of the 20 scenarios in a temp directory: the tests never touch the committed ones.</summary>
-    private static string CopyScenarios(TempRun run)
+    [Fact]
+    public async Task The_tests_copy_only_the_scenarios_when_the_committed_folder_holds_a_freeze()
     {
-        var scenarios = Path.Combine(run.Directory, "scenarios");
+        // Runbook step 2 commits scenarios/freeze.json beside the scenarios and their README. The
+        // copies the tests freeze must still be bare scenario sets, or every test that freezes one
+        // finds a freeze already there and CI turns red on the freeze's own PR.
+        using var run = TempRun.Create();
+        var committed = Path.Combine(run.Directory, "committed");
+        Directory.CreateDirectory(committed);
+        foreach (var file in Directory.GetFiles(RepoPaths.Scenarios))
+        {
+            File.Copy(file, Path.Combine(committed, Path.GetFileName(file)));
+        }
+
+        File.WriteAllText(Path.Combine(committed, "README.md"), "# Scenarios\n");
+        if (!File.Exists(Path.Combine(committed, Freeze.FileName)))
+        {
+            // Before step 2 there is no committed freeze to copy: make one, as the owner will.
+            Assert.Equal(0, (await Run("scenarios", "freeze", committed)).Code);
+        }
+
+        var scenarios = CopyScenarios(run, committed, "copy");
+
+        Assert.Equal(Enumerable.Range(1, 20).Select(i => $"s{i:00}.json"), Directory.GetFiles(scenarios).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        var (code, output, error) = await Run("scenarios", "freeze", scenarios);
+        Assert.Equal(0, code);
+        Assert.Equal("", error);
+        Assert.Contains("20 scenarios", output, StringComparison.Ordinal);
+        Assert.Null(Freeze.Verify(scenarios));
+    }
+
+    /// <summary>
+    /// A copy of the scenario files of <paramref name="from"/> (the committed 20 by default) in a temp
+    /// directory: the tests never touch the committed ones. Only the scenario files are copied, never
+    /// a committed <c>freeze.json</c> or the README beside them.
+    /// </summary>
+    private static string CopyScenarios(TempRun run, string? from = null, string name = "scenarios", Func<string, bool>? only = null)
+    {
+        var scenarios = Path.Combine(run.Directory, name);
         Directory.CreateDirectory(scenarios);
-        foreach (var file in Directory.GetFiles(RepoPaths.Scenarios, "*.json"))
+        foreach (var file in ScenarioLoader.Files(from ?? RepoPaths.Scenarios).Where(f => only?.Invoke(Path.GetFileNameWithoutExtension(f)) ?? true))
         {
             File.Copy(file, Path.Combine(scenarios, Path.GetFileName(file)));
         }
@@ -287,9 +378,9 @@ public sealed class FreezeTests
         return scenarios;
     }
 
-    private static async Task<string> Frozen(TempRun run)
+    private static async Task<string> Frozen(TempRun run, string? only = null)
     {
-        var scenarios = CopyScenarios(run);
+        var scenarios = CopyScenarios(run, only: only is null ? null : id => id == only);
         var (code, _, error) = await Run("scenarios", "freeze", scenarios);
         Assert.Equal(0, code);
         Assert.Equal("", error);

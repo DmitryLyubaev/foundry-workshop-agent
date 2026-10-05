@@ -8,6 +8,18 @@ public sealed class SurfaceClientTests
 {
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
+    [Theory]
+    [InlineData(0, "token")]
+    [InlineData(65536, "token")]
+    [InlineData(5000, " ")]
+    public void A_bad_port_or_token_is_refused_before_anything_is_made(int port, string token)
+    {
+        // Checked before the handler is built, so a refused client leaves no handler behind.
+        var refused = Assert.ThrowsAny<ArgumentException>(() => new SurfaceClient(port, token));
+
+        Assert.Equal(port is < 1 or > 65535 ? "port" : "token", refused.ParamName);
+    }
+
     [Fact]
     public async Task Lists_the_six_screens()
     {

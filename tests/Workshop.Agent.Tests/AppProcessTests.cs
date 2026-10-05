@@ -20,6 +20,10 @@ public sealed partial class AppProcessTests
         Assert.Contains("exited with code 1", failed.Message, StringComparison.Ordinal);
         Assert.Contains($"There is no workshop database at '{run.DatabasePath}'.", failed.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(run.SessionFilePath));
+        // As the transcript keeps it: the app's own words, with the run's paths taken out.
+        var described = Redaction.Describe(failed, fullName: false);
+        Assert.Contains(@"There is no workshop database at '<temp>\WorkshopAgentTests\<run>\workshop.db'.", described, StringComparison.Ordinal);
+        Assert.DoesNotContain(Path.GetFileName(run.Directory), described, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -118,7 +122,9 @@ public sealed class AppProcessCensusTests
         var failed = Assert.Throws<AppStartException>(
             () => AppProcess.Start(AppProcess.FindAppExe(), run.DatabasePath, run.SessionDirectory, RunningApp.FreePort(), TimeSpan.Zero));
 
-        Assert.Equal($"Workshop.App wrote no session file in '{run.SessionDirectory}' within 0 seconds.", failed.Message);
+        // The run's session directory, not its path: the path names the temp directory, the user and the run.
+        Assert.Equal("Workshop.App wrote no session file in the run's session directory within 0 seconds.", failed.Message);
+        Assert.Equal("AppStartException: Workshop.App wrote no session file in the run's session directory within 0 seconds.", Redaction.Describe(failed, fullName: false));
         Assert.Subset(before, AppIds());
     }
 

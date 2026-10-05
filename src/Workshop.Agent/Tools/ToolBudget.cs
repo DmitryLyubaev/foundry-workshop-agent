@@ -5,7 +5,7 @@ public sealed class ToolBudget
 {
     private int used;
 
-    public ToolBudget(int max = 25)
+    public ToolBudget(int max = Engines.AgentSettings.MaxToolCalls)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(max);
         Max = max;

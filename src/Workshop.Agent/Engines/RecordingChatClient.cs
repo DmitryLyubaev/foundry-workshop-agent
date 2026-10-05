@@ -67,7 +67,8 @@ public sealed class RecordingChatClient : DelegatingChatClient
                 response.Usage?.InputTokenCount ?? 0,
                 response.Usage?.OutputTokenCount ?? 0,
                 timer.Elapsed.TotalMilliseconds,
-                response.FinishReason?.Value);
+                response.FinishReason?.Value,
+                response.ModelId);
             calls.Add(call);
         }
 

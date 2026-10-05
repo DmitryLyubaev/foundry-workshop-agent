@@ -175,11 +175,33 @@ public sealed class ChatClientEngineTests
     }
 
     [Fact]
+    public void The_settings_hash_covers_the_run_limits_the_code_uses()
+    {
+        // The tool budget, the time limit and the throttling budget decide outcomes that count as
+        // failures, so the freeze covers them: each limit the runner and the engine use is the one
+        // AgentSettings writes into its canonical JSON, and a change to any changes the hash.
+        Assert.Equal(AgentSettings.MaxToolCalls, new ToolBudget().Max);
+        Assert.Equal(AgentSettings.MaxToolCalls, new Runner.EngineRun(Path.GetTempPath(), Runner.ScenarioRunner.TimeLimit).Budget.Max);
+        Assert.Equal(AgentSettings.TimeLimit, Runner.ScenarioRunner.TimeLimit);
+        Assert.Equal(AgentSettings.ThrottleBudget, ThrottleRetryChatClient.DefaultBudget);
+        Assert.Equal(25, AgentSettings.MaxToolCalls);
+        Assert.Equal(TimeSpan.FromMinutes(5), AgentSettings.TimeLimit);
+        Assert.Equal(TimeSpan.FromSeconds(60), AgentSettings.ThrottleBudget);
+
+        using var json = System.Text.Json.JsonDocument.Parse(AgentSettings.CanonicalJson);
+        Assert.Equal(AgentSettings.MaxToolCalls, json.RootElement.GetProperty("maxToolCalls").GetInt32());
+        Assert.Equal(AgentSettings.TimeLimit.TotalSeconds, json.RootElement.GetProperty("timeLimitSeconds").GetDouble());
+        Assert.Equal(AgentSettings.ThrottleBudget.TotalSeconds, json.RootElement.GetProperty("throttleBudgetSeconds").GetDouble());
+    }
+
+    [Fact]
     public async Task Every_engine_request_carries_AgentSettings()
     {
         Assert.Equal(4096, AgentSettings.MaxOutputTokens);
         Assert.Null(AgentSettings.Temperature);
-        Assert.Equal("""{"maxOutputTokens":4096,"temperature":null}""", AgentSettings.CanonicalJson);
+        Assert.Equal(
+            """{"maxOutputTokens":4096,"maxToolCalls":25,"temperature":null,"throttleBudgetSeconds":60,"timeLimitSeconds":300}""",
+            AgentSettings.CanonicalJson);
         Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(AgentSettings.CanonicalJson))), AgentSettings.Sha256);
 
         // Every engine is a ChatClientEngine over its model's client: each request it sends, a retried one too, carries the settings.
@@ -370,6 +392,9 @@ public sealed class ChatClientEngineTests
     [InlineData("anthropic-529")]
     [InlineData("anthropic-io")]
     [InlineData("timeout")]
+    [InlineData("client-404")]
+    [InlineData("request-failed-404")]
+    [InlineData("anthropic-404")]
     public async Task Service_failure_of_the_model_is_service_error(string kind)
     {
         var failure = ServiceFailure(kind);
@@ -386,9 +411,8 @@ public sealed class ChatClientEngineTests
 
     [Theory]
     [InlineData("client-400")]
-    [InlineData("client-404")]
+    [InlineData("client-422")]
     [InlineData("anthropic-400")]
-    [InlineData("anthropic-404")]
     [InlineData("other")]
     public async Task Other_failures_of_the_model_are_engine_error(string kind)
     {
@@ -650,6 +674,8 @@ public sealed class ChatClientEngineTests
         "timeout" => new TaskCanceledException("The request was canceled due to the configured timeout.", new TimeoutException("The operation timed out.")),
         "client-400" => new System.ClientModel.ClientResultException("Bad request.", new StatusResponse(400)),
         "client-404" => new System.ClientModel.ClientResultException("The deployment does not exist.", new StatusResponse(404)),
+        "request-failed-404" => new Azure.RequestFailedException(404, "The agent version does not exist."),
+        "client-422" => new System.ClientModel.ClientResultException("Unprocessable.", new StatusResponse(422)),
         "anthropic-400" => new Anthropic.Exceptions.AnthropicBadRequestException { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseBody = "{}" },
         "anthropic-404" => new Anthropic.Exceptions.AnthropicNotFoundException { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseBody = "{}" },
         "other" => new InvalidOperationException("The model's answer could not be read."),

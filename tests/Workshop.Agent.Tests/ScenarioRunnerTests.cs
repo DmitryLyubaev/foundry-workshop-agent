@@ -317,7 +317,9 @@ public sealed class ScenarioRunnerTests
 
         Assert.True(transcript.InfraError);
         Assert.Equal(Transcript.InfraErrorOutcome, transcript.Outcome);
-        Assert.Contains(missing, transcript.InfraMessage, StringComparison.Ordinal);
+        // The app's path, with the temp directory and the run's 32-hex name taken out.
+        Assert.Contains(@"<temp>\WorkshopAgentTests\<run>\no-such-app\Workshop.App.exe", transcript.InfraMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain(missing, transcript.InfraMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(nameof(AppStartException), transcript.InfraMessage, StringComparison.Ordinal);
         Assert.False(transcript.Success);
         Assert.Equal("fake", transcript.Engine);

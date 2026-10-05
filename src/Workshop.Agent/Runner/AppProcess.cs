@@ -214,8 +214,10 @@ public sealed class AppProcess : IDisposable
 
             if (waited.Elapsed >= timeout)
             {
+                // Named, not given: the path holds the temp directory, so the user's name, and the run's
+                // 32-hex directory, none of which may reach a transcript (Redaction takes them out too).
                 throw new AppStartException(
-                    $"Workshop.App wrote no session file in '{sessionDir}' within {timeout.TotalSeconds:0} seconds.");
+                    $"Workshop.App wrote no session file in the run's session directory within {timeout.TotalSeconds:0} seconds.");
             }
 
             Thread.Sleep(PollInterval);

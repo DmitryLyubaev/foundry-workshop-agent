@@ -5,9 +5,10 @@ using System.Text.Json;
 namespace Workshop.Agent.Engines;
 
 /// <summary>
-/// The model settings every engine sends with every model call, the same for every model, so the
-/// study compares the models and not their settings. They are frozen with the scenarios in plan 3:
-/// a change after that changes what the study measures.
+/// The model settings every engine sends with every model call, and the limits every run is held to,
+/// the same for every model, so the study compares the models and not their settings. They are
+/// frozen with the scenarios in plan 3 (<see cref="Sha256"/>): a change after that changes what the
+/// study measures, and a study run under the old freeze refuses to start.
 /// </summary>
 public static class AgentSettings
 {
@@ -16,6 +17,15 @@ public static class AgentSettings
 
     /// <summary>The sampling temperature: null, stated, so each model samples at its own default.</summary>
     public static float? Temperature => null;
+
+    /// <summary>The tool calls one run may make (spec §4.4): a call past them ends the run as <see cref="EngineOutcome.ToolLimit"/>.</summary>
+    public const int MaxToolCalls = 25;
+
+    /// <summary>How long one run may take (spec §4.4): past it the run ends as <see cref="EngineOutcome.TimeLimit"/>.</summary>
+    public static readonly TimeSpan TimeLimit = TimeSpan.FromMinutes(5);
+
+    /// <summary>The waits for throttling one run may spend in all: a wait past it ends the run as <see cref="EngineOutcome.Throttled"/>.</summary>
+    public static readonly TimeSpan ThrottleBudget = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// The settings as canonical JSON: camelCase names in ordinal order, no white space, and a null
@@ -32,8 +42,10 @@ public static class AgentSettings
         using var buffer = new MemoryStream();
         using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
         {
+            // The run limits too: each decides outcomes that count as task failures, so the freeze covers them.
             json.WriteStartObject();
             json.WriteNumber("maxOutputTokens", MaxOutputTokens);
+            json.WriteNumber("maxToolCalls", MaxToolCalls);
             if (Temperature is { } temperature)
             {
                 json.WriteNumber("temperature", temperature);
@@ -43,6 +55,8 @@ public static class AgentSettings
                 json.WriteNull("temperature");
             }
 
+            json.WriteNumber("throttleBudgetSeconds", ThrottleBudget.TotalSeconds);
+            json.WriteNumber("timeLimitSeconds", TimeLimit.TotalSeconds);
             json.WriteEndObject();
         }
 
