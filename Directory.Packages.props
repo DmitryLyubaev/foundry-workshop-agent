@@ -39,5 +39,7 @@
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
     <!-- The trace export tests read the spans from memory, not from Application Insights. -->
     <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.19.1" />
+    <!-- WorkflowShapeTests parse .github/workflows/live-eval.yml as YAML, not as lines of text. -->
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 </Project>

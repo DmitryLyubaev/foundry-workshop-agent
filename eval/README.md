@@ -30,7 +30,14 @@ python -m fwa_eval dataset <dir>   # writes <dir>/dataset.jsonl
 python -m fwa_eval eval    <dir>   # dataset, then the cloud evaluation, then <dir>/eval-scores.json
 python -m fwa_eval analyse <dir>   # the comparison, as JSON
 python -m fwa_eval report  <dir>   # writes <dir>/report.md and prints it
+python -m fwa_eval.scan    <dir> [--literal-env NAME ...]   # exit 1 if any file holds a secret or identifier
 ```
+
+The scan is what the live evaluation (`.github/workflows/live-eval.yml`) runs before it posts the
+report or uploads its outputs. It looks for tokens, JWTs, URLs, ARM paths, Azure and Anthropic
+hosts, emails, GUIDs and keys, and for the value of each `--literal-env` variable (for an
+endpoint, also its host and resource name). It prints each finding as `file:line: kind`, never
+the text it matched.
 
 Run them from `eval/`, or put `eval/` on `PYTHONPATH`.
 
