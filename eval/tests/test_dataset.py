@@ -153,13 +153,10 @@ def test_the_tools_file_is_checked_against_the_freeze(tmp_path):
     actual = hashlib.sha256(dataset.TOOLS_FILE.read_bytes().rstrip(b"\n")).hexdigest()
     assert dataset.tools_sha256() == actual
 
-    matching = write_freeze(tmp_path / "a" / "freeze.json")
-    data = json.loads(matching.read_text(encoding="utf-8"))
-    data["toolsSha256"] = actual
-    matching.write_text(json.dumps(data), encoding="utf-8")
+    matching = write_freeze(tmp_path / "a" / "freeze.json", tools_sha=actual)
     assert dataset.tools_drift(matching) is None
 
-    drifted = write_freeze(tmp_path / "b" / "freeze.json")
+    drifted = write_freeze(tmp_path / "b" / "freeze.json", tools_sha="4" * 64)
     assert "tools" in dataset.tools_drift(drifted)
 
     assert dataset.tools_drift(tmp_path / "none" / "freeze.json") is None

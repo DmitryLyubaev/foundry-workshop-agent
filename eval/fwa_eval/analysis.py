@@ -24,7 +24,7 @@ import random
 from fractions import Fraction
 from pathlib import Path
 
-from .dataset import load_transcripts
+from .dataset import load_transcripts, tools_sha256
 
 GPT = "gpt"
 CLAUDE = "claude"
@@ -88,7 +88,7 @@ def _inconclusive(n: int) -> str:
 
 
 def read_freeze(freeze_path: str | Path) -> dict | None:
-    """The freeze's rule, short hash and date; None when there is no freeze file."""
+    """The freeze's rule, short hash, date, scenario set and hashes; None when there is no freeze file."""
     path = Path(freeze_path)
     if not path.exists():
         return None
@@ -102,8 +102,9 @@ def read_freeze(freeze_path: str | Path) -> dict | None:
             "resamples": int(rule["resamples"]),
             "passes": int(rule["passes"]),
         }
+        scenarios = sorted(name[: -len(".json")] for name in frozen["scenarios"] if name.endswith(".json"))
     except (ValueError, KeyError, TypeError) as e:
-        raise ValueError(f"The freeze at '{path}' has no readable decisionRule: {e!r}") from e
+        raise ValueError(f"The freeze at '{path}' has no readable decisionRule or scenarios: {e!r}") from e
     if parsed["resamples"] < 1 or parsed["passes"] < 1:
         raise ValueError(f"The freeze at '{path}' has a decisionRule with no resamples or passes.")
     return {
@@ -111,9 +112,31 @@ def read_freeze(freeze_path: str | Path) -> dict | None:
         # As Workshop.Agent's Freeze.ShortHash: the start of the SHA-256 of the file's bytes.
         "short_hash": hashlib.sha256(raw).hexdigest()[:_SHORT_HASH],
         "frozen_on": frozen.get("frozenOn"),
+        "scenarios": scenarios,
         "instructionsSha256": frozen.get("instructionsSha256"),
         "settingsSha256": frozen.get("settingsSha256"),
+        "toolsSha256": frozen.get("toolsSha256"),
     }
+
+
+def _mismatches(freeze: dict, transcripts: list[dict]) -> list[str]:
+    """What about these transcripts the freeze does not account for, as short reasons.
+
+    A transcript records the instructions' and the settings' hashes but not the tools'; the tools
+    are checked as this package holds them (tools.json, which a .NET test keeps equal to the code's).
+    A scenario the freeze does not list is a mismatch; a frozen scenario with no run is only an
+    incomplete run.
+    """
+    reasons = []
+    if any(t["instructionsSha256"] != freeze["instructionsSha256"] for t in transcripts):
+        reasons.append("instructions")
+    if any(t["settingsSha256"] != freeze["settingsSha256"] for t in transcripts):
+        reasons.append("settings")
+    if tools_sha256() != freeze["toolsSha256"]:
+        reasons.append("tools")
+    if {t["scenarioId"] for t in transcripts} - set(freeze["scenarios"]):
+        reasons.append("scenarios")
+    return reasons
 
 
 def compare(
@@ -121,21 +144,29 @@ def compare(
 ) -> dict:
     """C1 = x − y over the transcripts, under the freeze's decision rule. Plain JSON out.
 
-    `freeze_path` defaults to scenarios/freeze.json in this repository.
+    `freeze_path` defaults to scenarios/freeze.json in this repository, and with no file there the
+    pre-registered values are used and the result says there was no freeze. A path given that
+    holds no file is refused: a mistyped path must not pass for "no freeze".
     """
+    if freeze_path is not None and not Path(freeze_path).exists():
+        raise ValueError(f"There is no freeze at '{freeze_path}'.")
     transcripts = load_transcripts(transcripts_dir)
     freeze = read_freeze(freeze_path if freeze_path is not None else DEFAULT_FREEZE)
     rule = freeze["rule"] if freeze else dict(PRE_REGISTERED)
 
     kept: dict[tuple[str, str], list[float]] = {}
+    made: dict[tuple[str, str], set[int]] = {}
     scenarios: set[str] = set()
     dropped = {x: 0, y: 0}
+    infra_runs = []
     for t in transcripts:
         if t["engine"] not in (x, y):
             continue
         scenarios.add(t["scenarioId"])
+        made.setdefault((t["scenarioId"], t["engine"]), set()).add(t["pass"])
         if t["infraError"]:
             dropped[t["engine"]] += 1
+            infra_runs.append({"scenario": t["scenarioId"], "engine": t["engine"], "pass": t["pass"]})
             continue
         kept.setdefault((t["scenarioId"], t["engine"]), []).append(1.0 if t["success"] else 0.0)
 
@@ -155,6 +186,17 @@ def compare(
             "x_passes": len(xs), "y_passes": len(ys),
         })
 
+    # The study is every frozen scenario × the rule's passes × both engines, counted as runs MADE:
+    # a run dropped for an infrastructure error was made, and dropping it is the pre-registered
+    # rule (spec §5.4), not a shorter study. Without a freeze, the scenarios seen stand in.
+    expected_scenarios = freeze["scenarios"] if freeze else sorted(scenarios)
+    runs_expected = len(expected_scenarios) * rule["passes"] * 2
+    runs_made = sum(
+        len({p for p in made.get((scenario, engine), set()) if p <= rule["passes"]})
+        for scenario in expected_scenarios for engine in (x, y)
+    )
+    mismatches = _mismatches(freeze, transcripts) if freeze else []
+
     n = len(per_scenario)
     result = {
         "x": x,
@@ -163,17 +205,14 @@ def compare(
         "freeze": None if freeze is None else {
             "short_hash": freeze["short_hash"],
             "frozen_on": freeze["frozen_on"],
-            # Every transcript ran with the instructions and settings the freeze recorded.
-            "matches_transcripts": all(
-                t["instructionsSha256"] == freeze["instructionsSha256"] and t["settingsSha256"] == freeze["settingsSha256"]
-                for t in transcripts
-            ),
+            "matches_transcripts": not mismatches,
+            "mismatches": mismatches,
         },
         "n": n,
-        # Complete: every paired scenario has the rule's passes on both sides, none dropped.
-        "complete": n > 0 and not unpaired and all(
-            row["x_passes"] >= rule["passes"] and row["y_passes"] >= rule["passes"] for row in per_scenario
-        ),
+        "scenarios_expected": len(expected_scenarios),
+        "runs_expected": runs_expected,
+        "runs_made": runs_made,
+        "complete": runs_expected > 0 and runs_made == runs_expected,
         "mean": None,
         "ci_low": None,
         "ci_high": None,
@@ -182,6 +221,7 @@ def compare(
         "per_scenario": per_scenario,
         "unpaired": unpaired,
         "dropped_infra": dropped,
+        "infra_runs": infra_runs,
     }
     if n == 0:
         return result

@@ -130,8 +130,9 @@ def test_verdict_rule(mean, ci, expected):
     ],
     ids=["plus-0.10", "minus-0.10"],
 )
-def test_a_mean_of_exactly_the_threshold_is_a_difference(tmp_path, freeze, monkeypatch, pairs, mean):
+def test_a_mean_of_exactly_the_threshold_is_a_difference(tmp_path, monkeypatch, pairs, mean):
     study = _pairs_study(tmp_path / "study", pairs)
+    freeze = write_freeze(tmp_path / "freeze.json", scenarios=30)
 
     result = compare(study, freeze_path=freeze)
 
@@ -148,12 +149,12 @@ def test_a_mean_of_exactly_the_threshold_is_a_difference(tmp_path, freeze, monke
     assert unsettled["verdict"] == "inconclusive at 30 scenarios"
 
 
-def test_an_interval_touching_zero_is_inconclusive(tmp_path, freeze):
+def test_an_interval_touching_zero_is_inconclusive(tmp_path):
     """Ten scenarios, three where GPT did one pass better: mean +0.10, and a resample that draws
     none of the three (0.7^10 ≈ 2.8% of them) puts the 2.5th percentile at exactly 0."""
     study = _pairs_study(tmp_path / "study", [(1, 0)] * 3 + [(2, 2)] * 7)
 
-    result = compare(study, freeze_path=freeze)
+    result = compare(study, freeze_path=write_freeze(tmp_path / "freeze.json", scenarios=10))
 
     assert result["mean"] == 0.1
     assert result["ci_low"] == 0.0
@@ -164,14 +165,14 @@ def test_an_interval_touching_zero_is_inconclusive(tmp_path, freeze):
 # --- pairing, passes and infra errors --------------------------------------------------------
 
 
-def test_each_scenario_is_its_mean_over_passes_then_paired(tmp_path, freeze):
+def test_each_scenario_is_its_mean_over_passes_then_paired(tmp_path):
     study = write_study(tmp_path / "study", {
         "s01": ([1, 1, 0], [1, 0, 0]),   # 2/3 − 1/3 = +1/3
         "s02": ([0, 0, 0], [1, 1, 1]),   # 0 − 1 = −1
         "s03": ([1, 1, 1], [1, 1, 1]),   # 0
     })
 
-    result = compare(study, freeze_path=freeze)
+    result = compare(study, freeze_path=write_freeze(tmp_path / "freeze.json", scenarios=3))
 
     assert result["n"] == 3
     by_id = {row["scenario"]: row for row in result["per_scenario"]}
@@ -181,10 +182,10 @@ def test_each_scenario_is_its_mean_over_passes_then_paired(tmp_path, freeze):
     assert by_id["s02"]["delta"] == -1.0
     assert result["mean"] == round((1 / 3 - 1 + 0) / 3, 12)
     assert result["x"] == "gpt" and result["y"] == "claude"
-    assert result["complete"] is True
+    assert (result["runs_made"], result["runs_expected"], result["complete"]) == (18, 18, True)
 
 
-def test_infra_errors_are_dropped_from_the_pairs(tmp_path, freeze):
+def test_infra_errors_are_dropped_from_the_pairs(tmp_path):
     study = tmp_path / "study"
     # s01: GPT's second pass failed for the infrastructure: its mean is over passes 1 and 3.
     for p, s in ((1, True), (3, False)):
@@ -197,7 +198,7 @@ def test_infra_errors_are_dropped_from_the_pairs(tmp_path, freeze):
         write(study, transcript("s02", "gpt", p, success=True))
         write(study, transcript("s02", "claude", p, success=False, outcome="service_error", infra=True, final_reply=None))
 
-    result = compare(study, freeze_path=freeze)
+    result = compare(study, freeze_path=write_freeze(tmp_path / "freeze.json", scenarios=2))
 
     assert result["n"] == 1
     (row,) = result["per_scenario"]
@@ -207,8 +208,39 @@ def test_infra_errors_are_dropped_from_the_pairs(tmp_path, freeze):
     # One scenario with a delta of +0.5 meets the rule as written; "complete" is what says how
     # little stands behind it, and the report says it too.
     assert (result["mean"], result["ci_low"], result["ci_high"], result["verdict"]) == (0.5, 0.5, 0.5, "difference")
-    # A scenario short of the rule's passes makes this less than the study planned.
-    assert result["complete"] is False
+    # Every run was made: dropping the infrastructure errors is the rule, not a shorter study.
+    assert (result["runs_made"], result["runs_expected"], result["complete"]) == (12, 12, True)
+    assert result["infra_runs"] == [
+        {"scenario": "s01", "engine": "gpt", "pass": 2},
+        {"scenario": "s02", "engine": "claude", "pass": 1},
+        {"scenario": "s02", "engine": "claude", "pass": 2},
+        {"scenario": "s02", "engine": "claude", "pass": 3},
+    ]
+
+
+def test_a_study_with_one_infra_error_is_still_the_study(tmp_path, freeze):
+    """20 scenarios x 3 passes x 2 engines, one Claude pass a service error: all 120 runs were made."""
+    study = write_study(tmp_path / "study", {f"s{i:02d}": ([1, 1, 0], [1, 0, 0]) for i in range(1, 21)})
+    write(study, transcript("s07", "claude", 2, success=False, outcome="service_error", infra=True, final_reply=None))
+
+    result = compare(study, freeze_path=freeze)
+
+    assert (result["n"], result["runs_made"], result["runs_expected"], result["complete"]) == (20, 120, 120, True)
+    assert result["infra_runs"] == [{"scenario": "s07", "engine": "claude", "pass": 2}]
+    assert result["dropped_infra"] == {"gpt": 0, "claude": 1}
+
+
+def test_a_run_short_of_the_frozen_scenarios_or_passes_is_incomplete(tmp_path, freeze):
+    # Every frozen scenario, but one pass missing on one side.
+    study = write_study(tmp_path / "a", {f"s{i:02d}": ([1, 1, 1], [1, 1, 1]) for i in range(1, 21)})
+    (study / "s20.gpt.p3.json").unlink()
+    short = compare(study, freeze_path=freeze)
+    assert (short["runs_made"], short["complete"]) == (119, False)
+
+    # Three passes each, but only 19 of the 20 frozen scenarios.
+    study = write_study(tmp_path / "b", {f"s{i:02d}": ([1, 1, 1], [1, 1, 1]) for i in range(1, 20)})
+    fewer = compare(study, freeze_path=freeze)
+    assert (fewer["runs_made"], fewer["runs_expected"], fewer["complete"]) == (114, 120, False)
 
 
 def test_no_pair_at_all_is_inconclusive_at_zero(tmp_path, freeze):
@@ -260,8 +292,9 @@ def test_the_rule_is_read_from_the_freeze(tmp_path):
     smoke = _pairs_study(tmp_path / "smoke", [])
     write(smoke, transcript("s01", "gpt", 1))
     write(smoke, transcript("s01", "claude", 1))
-    assert compare(smoke, freeze_path=write_freeze(tmp_path / "e" / "freeze.json", passes=1))["complete"] is True
-    assert compare(smoke, freeze_path=write_freeze(tmp_path / "f" / "freeze.json"))["complete"] is False
+    one_pass = write_freeze(tmp_path / "e" / "freeze.json", passes=1, scenarios=1)
+    assert compare(smoke, freeze_path=one_pass)["complete"] is True
+    assert compare(smoke, freeze_path=write_freeze(tmp_path / "f" / "freeze.json", scenarios=1))["complete"] is False
 
 
 def test_the_freeze_is_named_by_its_short_hash(tmp_path, freeze):
@@ -275,20 +308,41 @@ def test_the_freeze_is_named_by_its_short_hash(tmp_path, freeze):
     assert result["freeze"]["matches_transcripts"] is True
 
 
-def test_transcripts_run_under_other_instructions_do_not_match_the_freeze(tmp_path):
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"instructions_sha": "9" * 64}, "instructions"),
+        ({"settings_sha": "8" * 64}, "settings"),
+        ({"tools_sha": "7" * 64}, "tools"),
+        # The transcripts hold s01, which this freeze does not list.
+        ({"scenarios": ["s02", "s03"]}, "scenarios"),
+    ],
+)
+def test_transcripts_the_freeze_does_not_account_for_do_not_match_it(tmp_path, change, reason):
     study = _pairs_study(tmp_path / "study", [(3, 0)])
-    other = write_freeze(tmp_path / "freeze.json", instructions_sha="9" * 64)
+    other = write_freeze(tmp_path / "freeze.json", **change)
 
-    assert compare(study, freeze_path=other)["freeze"]["matches_transcripts"] is False
+    frozen = compare(study, freeze_path=other)["freeze"]
+
+    assert (frozen["matches_transcripts"], frozen["mismatches"]) == (False, [reason])
 
 
-def test_without_a_freeze_the_pre_registered_rule_is_used_and_said(tmp_path):
+def test_without_a_freeze_the_pre_registered_rule_is_used_and_said(tmp_path, monkeypatch):
     study = _pairs_study(tmp_path / "study", [(3, 0)])
+    monkeypatch.setattr(analysis, "DEFAULT_FREEZE", tmp_path / "missing" / "freeze.json")
 
-    result = compare(study, freeze_path=tmp_path / "missing" / "freeze.json")
+    result = compare(study)
 
     assert result["freeze"] is None
     assert result["rule"] == {"threshold": 0.1, "seed": 20261004, "resamples": 10_000, "passes": 3}
+
+
+def test_a_freeze_path_that_holds_no_file_is_refused(tmp_path):
+    """A mistyped path must not pass for "no freeze": only leaving the path out means that."""
+    study = _pairs_study(tmp_path / "study", [(3, 0)])
+
+    with pytest.raises(ValueError, match="no freeze at"):
+        compare(study, freeze_path=tmp_path / "mistyped" / "freez.json")
 
 
 def test_a_broken_freeze_is_refused(tmp_path):

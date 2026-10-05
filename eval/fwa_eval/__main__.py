@@ -10,7 +10,8 @@
   report   <dir> [--scores PATH] [--freeze PATH] [--out PATH]
                                                   the Markdown report (default <dir>/report.md), also printed
 
---freeze defaults to scenarios/freeze.json in this repository. Exit codes: 0 done, 1 failed, 2 usage.
+--freeze defaults to scenarios/freeze.json in this repository, and without a file there the report says
+there was no freeze; a --freeze path that holds no file is refused. Exit codes: 0 done, 1 failed, 2 usage.
 """
 
 from __future__ import annotations
@@ -49,17 +50,17 @@ def _parser() -> argparse.ArgumentParser:
     p = commands.add_parser("eval")
     p.add_argument("dir", type=Path)
     p.add_argument("--judge")
-    p.add_argument("--freeze", type=Path, default=analysis.DEFAULT_FREEZE)
+    p.add_argument("--freeze", type=Path)
 
     p = commands.add_parser("analyse")
     p.add_argument("dir", type=Path)
-    p.add_argument("--freeze", type=Path, default=analysis.DEFAULT_FREEZE)
+    p.add_argument("--freeze", type=Path)
     p.add_argument("--out", type=Path)
 
     p = commands.add_parser("report")
     p.add_argument("dir", type=Path)
     p.add_argument("--scores", type=Path)
-    p.add_argument("--freeze", type=Path, default=analysis.DEFAULT_FREEZE)
+    p.add_argument("--freeze", type=Path)
     p.add_argument("--out", type=Path)
     return parser
 
@@ -73,7 +74,7 @@ def _eval(args, out, err) -> int:
     if not endpoint:
         print(f"{ENDPOINT_VARIABLE} is not set: it names the Foundry project the evaluation runs in.", file=err)
         return 2
-    drift = dataset.tools_drift(args.freeze)
+    drift = dataset.tools_drift(args.freeze or analysis.DEFAULT_FREEZE)
     if drift:
         print(drift, file=err)
         return 2
@@ -98,6 +99,13 @@ def main(argv: list[str] | None = None, out=None, err=None) -> int:
         args = _parser().parse_args(argv)
     except _Usage as e:
         print(f"{e}\n\n{__doc__}", file=err)
+        return 2
+
+    freeze = getattr(args, "freeze", None)
+    if freeze is not None and not freeze.is_file():
+        # A mistyped path must not pass for "no freeze" and report the study unfrozen.
+        print(f"There is no freeze at '{freeze}': check the --freeze path, or leave the flag out to use "
+              "scenarios/freeze.json (or report without a freeze when there is none).", file=err)
         return 2
 
     try:

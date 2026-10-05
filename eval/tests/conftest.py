@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from fwa_eval import dataset
+
 FIXTURES = Path(__file__).parent / "fixtures"
 RECORDED = FIXTURES / "transcripts"
 
@@ -99,15 +101,19 @@ def write_freeze(
     passes: int = 3,
     instructions_sha: str = INSTRUCTIONS_SHA,
     settings_sha: str = SETTINGS_SHA,
+    tools_sha: str | None = None,
+    scenarios: int | list[str] = 20,
 ) -> Path:
-    """A freeze.json as Workshop.Agent writes it, with a made-up scenario hash."""
+    """A freeze.json as Workshop.Agent writes it: `scenarios` is the frozen set (s01..sNN for a
+    number), each with a made-up file hash; the tools hash is this package's own unless given."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    ids = [f"s{i:02d}" for i in range(1, scenarios + 1)] if isinstance(scenarios, int) else scenarios
     freeze = {
         "frozenOn": "2026-10-06",
-        "scenarios": {"s01.json": "3" * 64},
+        "scenarios": {f"{s}.json": "3" * 64 for s in ids},
         "instructionsSha256": instructions_sha,
         "settingsSha256": settings_sha,
-        "toolsSha256": "4" * 64,
+        "toolsSha256": tools_sha if tools_sha is not None else dataset.tools_sha256(),
         "decisionRule": {"threshold": threshold, "seed": seed, "resamples": resamples, "passes": passes},
     }
     path.write_text(json.dumps(freeze, indent=2) + "\n", encoding="utf-8", newline="\n")

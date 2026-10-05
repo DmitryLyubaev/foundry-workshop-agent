@@ -11,7 +11,7 @@ import pytest
 
 from conftest import RECORDED, write_freeze
 from fwa_eval import __main__ as cli
-from fwa_eval import analysis, dataset, report, run_eval
+from fwa_eval import analysis, report, run_eval
 
 
 @pytest.fixture
@@ -27,12 +27,10 @@ def _main(*argv):
     return code, out.getvalue(), err.getvalue()
 
 
-def _matching_freeze(path):
-    freeze = write_freeze(path)
-    data = json.loads(freeze.read_text(encoding="utf-8"))
-    data["toolsSha256"] = dataset.tools_sha256()
-    freeze.write_text(json.dumps(data), encoding="utf-8")
-    return freeze
+@pytest.fixture(autouse=True)
+def no_default_freeze(tmp_path, monkeypatch):
+    """No test reads the repository's own scenarios/freeze.json, whether or not it exists yet."""
+    monkeypatch.setattr(analysis, "DEFAULT_FREEZE", tmp_path / "no-default" / "freeze.json")
 
 
 def test_dataset_writes_beside_the_transcripts(study):
@@ -89,7 +87,7 @@ def test_eval_scores_the_dataset_keyless_and_writes_the_scores(study, tmp_path, 
 
     monkeypatch.setattr(run_eval, "run", fake_run)
 
-    code, out, err = _main("eval", study, "--freeze", _matching_freeze(tmp_path / "freeze.json"))
+    code, out, err = _main("eval", study, "--freeze", write_freeze(tmp_path / "freeze.json"))
 
     assert (code, err) == (0, "")
     assert seen == {"endpoint": "https://example.invalid/api/projects/example", "judge": "gpt-5.6-luna", "rows": 4, "cred": credential}
@@ -105,8 +103,8 @@ def test_eval_takes_the_judge_from_the_gpt_deployment_variable(study, tmp_path, 
     judges = []
     monkeypatch.setattr(run_eval, "run", lambda e, judge, d, c: judges.append(judge) or {"rows": []})
 
-    _main("eval", study, "--freeze", tmp_path / "none.json")
-    _main("eval", study, "--freeze", tmp_path / "none.json", "--judge", "other")
+    _main("eval", study)
+    _main("eval", study, "--judge", "other")
 
     assert judges == ["gpt-judge", "other"]
 
@@ -115,7 +113,7 @@ def test_eval_refuses_tools_that_are_not_the_frozen_ones(study, tmp_path, monkey
     monkeypatch.setenv(cli.ENDPOINT_VARIABLE, "https://example.invalid/p")
     monkeypatch.setattr(run_eval, "run", lambda *a: pytest.fail("must not run"))
 
-    code, _, err = _main("eval", study, "--freeze", write_freeze(tmp_path / "freeze.json"))
+    code, _, err = _main("eval", study, "--freeze", write_freeze(tmp_path / "freeze.json", tools_sha="4" * 64))
 
     assert code == 2
     assert "tools" in err
@@ -130,11 +128,31 @@ def test_a_failed_evaluation_is_reported_redacted(study, tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_eval, "run", failing)
 
-    code, _, err = _main("eval", study, "--freeze", tmp_path / "none.json")
+    code, _, err = _main("eval", study)
 
     assert code == 1
     assert "The evaluation failed: RuntimeError: 403" in err
     assert "11111111" not in err and "x9y8" not in err
+
+
+@pytest.mark.parametrize("command", ["analyse", "report", "eval"])
+def test_a_freeze_path_that_holds_no_file_is_an_error(study, tmp_path, monkeypatch, command):
+    monkeypatch.setenv(cli.ENDPOINT_VARIABLE, "https://example.invalid/p")
+    monkeypatch.setattr(run_eval, "run", lambda *a: pytest.fail("must not run"))
+
+    code, out, err = _main(command, study, "--freeze", tmp_path / "scenarios" / "freez.json")
+
+    assert code == 2
+    assert "There is no freeze at" in err and "--freeze" in err
+    assert out == ""
+    assert not (study / cli.REPORT_FILE).exists()
+
+
+def test_leaving_the_freeze_out_reports_without_one(study):
+    code, out, _ = _main("report", study)
+
+    assert code == 0
+    assert "**Freeze:** none" in out
 
 
 def test_usage_errors_exit_2():

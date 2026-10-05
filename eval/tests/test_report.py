@@ -9,7 +9,7 @@ import re
 import pytest
 
 from conftest import RECORDED, transcript, write, write_freeze, write_study
-from fwa_eval import prices, report
+from fwa_eval import analysis, prices, report
 from fwa_eval.analysis import compare
 
 RENDERED_ON = dt.date(2026, 10, 8)
@@ -73,6 +73,8 @@ def test_the_header_gives_the_date_n_and_the_freeze_hash(recorded_report, freeze
     short = hashlib.sha256(freeze.read_bytes()).hexdigest()[:12]
     assert f"**Freeze:** `{short}`, frozen on 2026-10-06" in recorded_report
     # One pass where the rule asks for three: said, so a smoke run is never read as the study.
+    # Six runs of the 120 the freeze asks for: said, so a smoke run is never read as the study.
+    assert "**Runs:** 6 of the 120 the rule asks for (20 scenarios × 3 passes × 2 engines)" in recorded_report
     assert "a smoke run, not the study" in recorded_report
 
 
@@ -86,10 +88,15 @@ def test_task_success_per_engine(recorded_report):
 
 def test_tokens_cost_and_time_per_task(recorded_report):
     section = _section(recorded_report, "## Tokens, cost and time per task")
-    # GPT, kept run s01: 5,700 in, 130 out, $0.001296; total includes s03's billed service error.
-    assert "| GPT | 5,700 | 130 | $0.0013 | $0.0015 | 9.5 s |" in section
-    # Claude: means of 3,900/1,300/3,500 in and 125/30/1,049 out; $0.01472 in all; 108.3 s.
+    # GPT's one scored run, s01: 5,700 in, 130 out, $0.001296.
+    assert "| GPT | 5,700 | 130 | $0.0013 | $0.0013 | 9.5 s |" in section
+    # Claude: means of 3,900/1,300/3,500 in and 125/30/1,049 out; $0.01472 over the three; 108.3 s.
     assert "| Claude | 2,900 | 401 | $0.0049 | $0.0147 | 108.3 s |" in section
+    # The infrastructure-error runs on their own: GPT's s02 (no call) and s03 (1,100 in, 20 out,
+    # $0.000244 billed), kept out of the scored runs' figures.
+    infra = section[section.index("| Engine | Infrastructure-error runs |"):]
+    assert "| GPT | 2 | 1,100 | 20 | $0.0002 |" in infra
+    assert "| Claude | 0 | 0 | 0 | $0.0000 |" in infra
     assert prices.SOURCE in recorded_report
     assert prices.READ_ON in recorded_report
 
@@ -146,17 +153,61 @@ def test_the_limits(recorded_report):
     assert "bias" in section
 
 
-def test_an_unfrozen_run_says_so(tmp_path):
+def test_a_study_with_one_infra_error_is_labelled_the_study_with_the_drop_reported(tmp_path, freeze):
+    """20 × 3 × 2 runs, one of them a Claude service error: the study, not a smoke run."""
+    study = write_study(tmp_path / "study", {f"s{i:02d}": ([1, 1, 0], [1, 0, 0]) for i in range(1, 21)})
+    write(study, transcript("s07", "claude", 2, success=False, outcome="service_error", infra=True, final_reply=None))
+
+    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+
+    assert "**Runs:** 120 of the 120 the rule asks for (20 scenarios × 3 passes × 2 engines), counting runs dropped for an infrastructure error." in text
+    assert "smoke run" not in text
+    section = _section(text, "## The pre-registered comparison")
+    assert "Dropped from the pairs for an infrastructure error (spec §5.4): 1 run: Claude s07 pass 2." in section
+    assert "over 20 scenarios" in section
+
+
+def test_a_study_without_infra_errors_says_none_was_dropped(tmp_path, freeze):
+    study = write_study(tmp_path / "study", {f"s{i:02d}": ([1, 1, 1], [1, 1, 1]) for i in range(1, 21)})
+    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+    assert "No run was dropped for an infrastructure error." in text
+
+
+def test_an_unfrozen_run_says_so(tmp_path, monkeypatch):
     study = write_study(tmp_path / "study", {"s01": ([1], [0])})
-    text = report.render(compare(study, freeze_path=tmp_path / "none.json"), None, study, rendered_on=RENDERED_ON)
+    monkeypatch.setattr(analysis, "DEFAULT_FREEZE", tmp_path / "none" / "freeze.json")
+    text = report.render(compare(study), None, study, rendered_on=RENDERED_ON)
     assert "**Freeze:** none: these transcripts are not a frozen study run" in text
 
 
-def test_transcripts_that_do_not_match_the_freeze_are_flagged(tmp_path):
-    study = write_study(tmp_path / "study", {"s01": ([1], [0])})
-    other = write_freeze(tmp_path / "f" / "freeze.json", settings_sha="8" * 64)
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        ({"settings_sha": "8" * 64}, "their settings differ from it"),
+        ({"instructions_sha": "9" * 64}, "their instructions differ from it"),
+        ({"tools_sha": "7" * 64}, "the tools differ from it"),
+        ({"scenarios": ["s02"]}, "they hold scenarios it does not list"),
+    ],
+)
+def test_transcripts_that_do_not_match_the_freeze_are_flagged_on_the_verdict(tmp_path, change, said):
+    study = write_study(tmp_path / "study", {"s01": ([1, 1, 1], [0, 0, 0])})
+    other = write_freeze(tmp_path / "f" / "freeze.json", **change)
+
     text = report.render(compare(study, freeze_path=other), None, study, rendered_on=RENDERED_ON)
-    assert "were not run under this freeze" in text
+
+    assert f"were not run under this freeze ({said})" in text
+    assert "**Verdict: difference (transcripts do not match the freeze).** GPT's task success is higher" in text
+
+    inconclusive = write_study(tmp_path / "even", {"s01": ([1, 1, 1], [1, 1, 1])})
+    text = report.render(compare(inconclusive, freeze_path=other), None, inconclusive, rendered_on=RENDERED_ON)
+    assert "**Verdict: inconclusive at 1 scenario (transcripts do not match the freeze).**" in text
+
+
+def test_a_matching_freeze_leaves_the_verdict_unqualified(tmp_path, freeze):
+    study = write_study(tmp_path / "study", {"s01": ([1, 1, 1], [0, 0, 0])})
+    text = report.render(compare(study, freeze_path=freeze), None, study, rendered_on=RENDERED_ON)
+    assert "do not match the freeze" not in text
+    assert "**Verdict: difference.**" in text
 
 
 # --- Review Focus 4: nothing identifying reaches the report ----------------------------------

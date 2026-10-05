@@ -118,12 +118,26 @@ Anything else is **inconclusive at n scenarios**.
   verdict.
 
 **Without a freeze,** the pre-registered values are used, and the report says the run is not a
-frozen study run.
+frozen study run. That applies only when `--freeze` is left out and `scenarios/freeze.json` does
+not exist. A `--freeze` path that holds no file is refused (exit 2), so a mistyped path never
+passes for "no freeze".
 
 **Two more checks in the report:**
 
-- If the transcripts' instruction or settings hashes differ from the freeze's, the report warns.
-- If any scenario has fewer passes than the rule asks for, the report calls the run a smoke run.
+- **Does the freeze account for the transcripts?** The report checks four things against the
+  freeze:
+  - the transcripts' instruction and settings hashes
+  - the tools (`tools.json`, since transcripts record no tools hash)
+  - the scenario set: a scenario the freeze does not list counts as a mismatch
+
+  If any of them differ, the header warns, naming what differs. The verdict line also carries
+  "(transcripts do not match the freeze)".
+- **Is this the study, or a smoke run?** The report counts runs made against the freeze's scenarios
+  × the rule's passes × 2 engines. A run dropped for an infrastructure error still counts as made:
+  dropping it is the pre-registered rule, not a shorter study. Only a run short of that count is
+  called a smoke run.
+  - The comparison section lists each run that was dropped, by engine, scenario and pass.
+  - The cost section shows the dropped runs' tokens and cost apart from the scored runs.
 
 ## Prices
 

@@ -109,15 +109,28 @@ def _header(analysis: dict, transcripts: list[dict], rendered_on: dt.date) -> li
         lines.append(f"- **Freeze:** `{freeze['short_hash']}`, frozen on {freeze['frozen_on']}")
         if not freeze["matches_transcripts"]:
             lines.append(
-                "- **Warning:** these transcripts were not run under this freeze (their instructions or "
-                "settings differ from it), so the verdict below is not the study's."
+                f"- **Warning:** these transcripts were not run under this freeze ({_mismatch_text(freeze)}), "
+                "so the verdict below is not the study's."
             )
-    if not analysis["complete"]:
-        lines.append(
-            f"- **Passes:** fewer than the {rule['passes']} the rule asks for on some scenario, or a scenario "
-            "without a pair: a smoke run, not the study."
-        )
+    runs = (
+        f"- **Runs:** {analysis['runs_made']} of the {analysis['runs_expected']} the rule asks for "
+        f"({_plural(analysis['scenarios_expected'], 'scenario', 'scenarios')} × {_plural(rule['passes'], 'pass', 'passes')} × 2 engines), "
+        "counting runs dropped for an infrastructure error"
+    )
+    lines.append(runs + ("." if analysis["complete"] else ": a smoke run, not the study."))
     return lines
+
+
+_MISMATCH_TEXT = {
+    "instructions": "their instructions differ from it",
+    "settings": "their settings differ from it",
+    "tools": "the tools differ from it",
+    "scenarios": "they hold scenarios it does not list",
+}
+
+
+def _mismatch_text(freeze: dict) -> str:
+    return "; ".join(_MISMATCH_TEXT.get(m, "they differ from it") for m in freeze.get("mismatches", [])) or "they differ from it"
 
 
 def _success(engines: list[str], by_engine: dict[str, list[dict]]) -> list[str]:
@@ -146,29 +159,41 @@ def _costs(engines: list[str], by_engine: dict[str, list[dict]]) -> list[str]:
     lines = [
         "## Tokens, cost and time per task",
         "",
-        "| Engine | Input tokens per task | Output tokens per task | Cost per task | Cost in all | Time per task |",
+        "| Engine | Input tokens per task | Output tokens per task | Cost per task | Cost of the scored runs | Time per task |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for e in engines:
-        runs = by_engine[e]
-        kept = [t for t in runs if not t["infraError"]]
+        kept = [t for t in by_engine[e] if not t["infraError"]]
         tokens = [_tokens(t) for t in kept]
         costs = [_cost(t) for t in kept]
-        all_costs = [_cost(t) for t in runs]
         per_task = None if None in costs else _mean(costs)
-        total = None if None in all_costs else math.fsum(all_costs)
+        total = None if None in costs else math.fsum(costs)
         input_mean, output_mean = _mean([i for i, _ in tokens]), _mean([o for _, o in tokens])
         time_mean = _mean([t["ms"] for t in kept])
         lines.append(
             f"| {_engine_label(e)} | {'–' if input_mean is None else f'{input_mean:,.0f}'} | "
             f"{'–' if output_mean is None else f'{output_mean:,.0f}'} | {_money(per_task) if kept else '–'} | "
-            f"{_money(total)} | {'–' if time_mean is None else f'{time_mean / 1000:.1f} s'} |"
+            f"{_money(total) if kept else '–'} | {'–' if time_mean is None else f'{time_mean / 1000:.1f} s'} |"
         )
     lines += [
         "",
-        "Per task: over the runs without an infrastructure error. Cost in all: every run, including the "
-        "infrastructure errors whose model calls were billed. Time: the whole run, from its fresh database to its "
-        "checks.",
+        "Over the scored runs: those without an infrastructure error. Time: the whole run, from its fresh "
+        "database to its checks.",
+        "",
+        "Runs dropped for an infrastructure error are not scored, but any model calls they made were billed:",
+        "",
+        "| Engine | Infrastructure-error runs | Input tokens | Output tokens | Cost |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for e in engines:
+        infra = [t for t in by_engine[e] if t["infraError"]]
+        tokens = [_tokens(t) for t in infra]
+        costs = [_cost(t) for t in infra]
+        lines.append(
+            f"| {_engine_label(e)} | {len(infra)} | {sum(i for i, _ in tokens):,} | {sum(o for _, o in tokens):,} | "
+            f"{_money(None if None in costs else math.fsum(costs))} |"
+        )
+    lines += [
         "",
         f"Costs are the recorded tokens at the prices read on {prices.READ_ON} ({prices.SOURCE}), per 1M tokens:",
         "",
@@ -282,11 +307,25 @@ def _comparison(analysis: dict) -> list[str]:
             f"{_signed(analysis['ci_high'])}), over {_plural(n, 'scenario', 'scenarios')}."
         )
     lines.append("")
+    freeze = analysis["freeze"]
+    # Said on the verdict itself, not only in the header: the line is the one that gets quoted.
+    caveat = " (transcripts do not match the freeze)" if freeze is not None and not freeze["matches_transcripts"] else ""
     if analysis["verdict"] == "difference":
         favoured = _engine_label(analysis["favours"])
-        lines.append(f"**Verdict: difference.** {favoured}'s task success is higher, over {_plural(n, 'scenario', 'scenarios')}.")
+        lines.append(f"**Verdict: difference{caveat}.** {favoured}'s task success is higher, over {_plural(n, 'scenario', 'scenarios')}.")
     else:
-        lines.append(f"**Verdict: {analysis['verdict']}.**")
+        lines.append(f"**Verdict: {analysis['verdict']}{caveat}.**")
+
+    infra = [r for r in analysis.get("infra_runs", []) if re.match(r"^[\w-]{1,32}$", r["scenario"])]
+    lines.append("")
+    if infra:
+        listed = ", ".join(f"{_engine_label(r['engine'])} {r['scenario']} pass {r['pass']}" for r in infra)
+        lines.append(
+            f"Dropped from the pairs for an infrastructure error (spec §5.4): "
+            f"{_plural(len(analysis['infra_runs']), 'run', 'runs')}: {listed}."
+        )
+    else:
+        lines.append("No run was dropped for an infrastructure error.")
 
     if analysis["per_scenario"]:
         lines += ["", f"| Scenario | {x} | {y} | C1 |", "|---|---:|---:|---:|"]
