@@ -41,7 +41,8 @@ public sealed class ScenarioLoaderTests
         Assert.Equal(scenarios.Length, scenarios.Select(s => s.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.Equal(
             Expected.Select(e => e.Id + ".json"),
-            Directory.GetFiles(RepoPaths.Scenarios).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            // The directory also holds a README and, once the owner freezes, freeze.json: neither is a scenario.
+            Directory.GetFiles(RepoPaths.Scenarios, "*.json").Select(Path.GetFileName).Where(n => n != "freeze.json").Order(StringComparer.Ordinal));
         foreach (var (scenario, expected) in scenarios.Zip(Expected))
         {
             Assert.Equal(expected.Category, scenario.Category);

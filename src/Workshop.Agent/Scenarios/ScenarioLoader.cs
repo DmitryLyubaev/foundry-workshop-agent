@@ -5,7 +5,8 @@ namespace Workshop.Agent.Scenarios;
 
 /// <summary>
 /// Reads a directory of scenario files, <c>&lt;id&gt;.json</c>, in file-name order, and refuses the
-/// whole set on the first problem, naming its file.
+/// whole set on the first problem, naming its file. A <c>freeze.json</c> beside them is the
+/// <see cref="Freeze"/>, not a scenario.
 /// </summary>
 public static class ScenarioLoader
 {
@@ -22,7 +23,7 @@ public static class ScenarioLoader
     public static Scenario[] LoadAll(string dir)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dir);
-        var files = Directory.GetFiles(dir, "*.json").Order(StringComparer.Ordinal).ToArray();
+        var files = Files(dir);
         if (files.Length == 0)
         {
             throw new InvalidDataException($"There are no scenario files (*.json) in '{dir}'.");
@@ -40,6 +41,12 @@ public static class ScenarioLoader
 
         return scenarios;
     }
+
+    /// <summary>The scenario files of <paramref name="dir"/>, in file-name order: every <c>*.json</c> but the freeze, which is not a scenario.</summary>
+    internal static string[] Files(string dir) =>
+        [.. Directory.GetFiles(dir, "*.json")
+            .Where(f => !Path.GetFileName(f).Equals(Freeze.FileName, StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)];
 
     private static Scenario Load(string file)
     {

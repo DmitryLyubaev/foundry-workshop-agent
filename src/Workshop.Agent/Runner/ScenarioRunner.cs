@@ -78,6 +78,13 @@ public sealed class ScenarioRunner
     }
 
     /// <summary>
+    /// The scenario directory whose freeze every run checks first (Review Focus 3): a run whose
+    /// scenarios, instructions, settings or tools differ from it throws
+    /// <see cref="FreezeBrokenException"/> before anything starts or any model is called. Null: no check.
+    /// </summary>
+    public string? FrozenScenarios { get; init; }
+
+    /// <summary>
     /// The scenario's scripted gate: it approves every destructive press when the scenario says
     /// <c>approve</c>, and denies it otherwise. A scenario without a gate gets a denying one, so an
     /// unexpected destructive press is blocked and shows on the record.
@@ -94,12 +101,19 @@ public sealed class ScenarioRunner
     /// outcome; the app failing to start, its endpoint failing, or the model's service failing
     /// (<see cref="EngineOutcome.ServiceError"/>) is an infrastructure error in the transcript.
     /// Cancellation, and any other exception the engine throws, propagate once the app is closed.
+    /// A run under a broken freeze (<see cref="FrozenScenarios"/>) throws <see cref="FreezeBrokenException"/> before it starts.
     /// </summary>
     public async Task<Transcript> RunAsync(Scenario s, int pass, string outDir, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(s);
         ArgumentOutOfRangeException.ThrowIfLessThan(pass, 1);
         ArgumentException.ThrowIfNullOrWhiteSpace(outDir);
+
+        // Before the first model call, and again before each run: a file edited after the study began cannot reach a later run.
+        if (FrozenScenarios is not null && Freeze.Verify(FrozenScenarios) is { } broken)
+        {
+            throw new FreezeBrokenException(broken);
+        }
 
         var startedAt = DateTimeOffset.UtcNow;
         var timer = Stopwatch.StartNew();

@@ -11,10 +11,11 @@ namespace Workshop.Agent;
 
 /// <summary>
 /// The command line: <c>run</c> runs scenarios through the runner and writes their transcripts;
-/// <c>scenarios check</c> reads a scenario set and reports its first problem. Exit codes: 0 done;
-/// 1 a run met an infrastructure error, the scenario set is invalid, the app is missing, or the GPT
-/// prompt agent could not be made to hold the code's definition; 2 a bad command line, or a Foundry
-/// setting missing.
+/// <c>scenarios check</c> reads a scenario set and reports its first problem; <c>scenarios freeze</c>
+/// writes the set's <c>freeze.json</c>. Exit codes: 0 done; 1 a run met an infrastructure error, the
+/// scenario set is invalid, the freeze is missing or broken, the app is missing, or the GPT prompt
+/// agent could not be made to hold the code's definition; 2 a bad command line, or a Foundry setting
+/// missing.
 /// </summary>
 internal static class Program
 {
@@ -22,7 +23,9 @@ internal static class Program
         Usage:
           Workshop.Agent run --engine fake|gpt|claude --scenarios <dir> [--only <id>] [--passes <n>] [--out <dir>] [--script-dir <dir>] [--app <exe>]
                              [--project-endpoint <url>] [--resource-endpoint <url>] [--gpt-deployment <name>] [--claude-deployment <name>] [--agent-name <name>]
+                             [--study | --frozen]
           Workshop.Agent scenarios check <dir>
+          Workshop.Agent scenarios freeze <dir>
 
           --engine      fake runs each scenario's scripted model from <script-dir>/<id>.correct.json;
                         gpt runs the Foundry prompt agent, claude runs Claude in Foundry, both signed in with the Azure CLI.
@@ -32,6 +35,11 @@ internal static class Program
           --out         where transcripts go (default %LOCALAPPDATA%\FoundryWorkshopAgent\transcripts\<timestamp>).
           --script-dir  the fake engine's scripts.
           --app         Workshop.App.exe (default: the one built beside this solution).
+          --study       a study run: <scenarios>/freeze.json must match the scenarios, instructions, settings, tools and
+                        decision rule, or no run starts; runs exactly 3 passes, in an output directory named with the freeze's short hash.
+          --frozen      the same check with any number of passes and the output directory as given.
+          scenarios freeze  writes <dir>/freeze.json: a SHA-256 for each scenario and for the instructions, settings and tools,
+                        and the decision rule. It does not overwrite a freeze.
 
           gpt and claude read Foundry's settings from these options, or else from FWA_PROJECT_ENDPOINT,
           FWA_RESOURCE_ENDPOINT, FWA_GPT_DEPLOYMENT, FWA_CLAUDE_DEPLOYMENT and FWA_AGENT_NAME
@@ -41,6 +49,12 @@ internal static class Program
     private const int Done = 0;
     private const int Failed = 1;
     private const int BadCommandLine = 2;
+
+    private const string StudyFlag = "--study";
+    private const string FrozenFlag = "--frozen";
+
+    /// <summary>The options that take no value.</summary>
+    private static readonly string[] RunFlags = [StudyFlag, FrozenFlag];
 
     private static readonly string[] RunOptions =
         ["--engine", "--scenarios", "--only", "--passes", "--out", "--script-dir", "--app", .. FoundryOptions.Settings.Select(s => s.Option)];
@@ -82,6 +96,8 @@ internal static class Program
                 return await RunScenariosAsync(options, output, error, environment, ct).ConfigureAwait(false);
             case ["scenarios", "check", var dir]:
                 return await CheckScenariosAsync(dir, output, error).ConfigureAwait(false);
+            case ["scenarios", "freeze", var dir]:
+                return await FreezeScenariosAsync(dir, output, error).ConfigureAwait(false);
             default:
                 await error.WriteLineAsync(Usage).ConfigureAwait(false);
                 return BadCommandLine;
@@ -103,6 +119,22 @@ internal static class Program
         }
     }
 
+    private static async Task<int> FreezeScenariosAsync(string dir, TextWriter output, TextWriter error)
+    {
+        try
+        {
+            var path = Freeze.Write(dir);
+            var count = ScenarioLoader.Files(dir).Length;
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"Froze {count} scenarios, the instructions, the settings and the tools in {path} (short hash {Freeze.ShortHash(dir)}).")).ConfigureAwait(false);
+            return Done;
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync(e.Message).ConfigureAwait(false);
+            return Failed;
+        }
+    }
+
     private static async Task<int> RunScenariosAsync(string[] args, TextWriter output, TextWriter error, Func<string, string?> environment, CancellationToken ct)
     {
         if (ReadOptions(args) is not { } options
@@ -113,6 +145,28 @@ internal static class Program
         {
             await error.WriteLineAsync(Usage).ConfigureAwait(false);
             return BadCommandLine;
+        }
+
+        var study = options.ContainsKey(StudyFlag);
+        if (study)
+        {
+            // Exactly the pre-registered passes: a study of 1 or 5 passes would not be the one registered.
+            if (options.ContainsKey("--passes") && passes != DecisionRule.PreRegistered.Passes)
+            {
+                await error.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"--study runs exactly {DecisionRule.PreRegistered.Passes} passes; leave out --passes, or use --frozen for any number.")).ConfigureAwait(false);
+                return BadCommandLine;
+            }
+
+            passes = DecisionRule.PreRegistered.Passes;
+        }
+
+        // First of all, before the engine's settings are read, an agent is made or anything is started: a
+        // run whose freeze does not hold never gets as far as a model.
+        var frozen = study || options.ContainsKey(FrozenFlag);
+        if (frozen && Freeze.Verify(scenarioDir) is { } broken)
+        {
+            await error.WriteLineAsync($"{broken} No run starts.").ConfigureAwait(false);
+            return Failed;
         }
 
         // Before anything is read or started: a run that cannot reach its model does not begin.
@@ -200,20 +254,35 @@ internal static class Program
         }
 
         var outDir = options.TryGetValue("--out", out var given) ? given : DefaultOutDir();
-        var runner = new ScenarioRunner(appExe, engineFor, ScenarioRunner.GateFor);
+        if (study)
+        {
+            // The directory names the freeze its transcripts were run under.
+            outDir = $"{outDir}-{Freeze.ShortHash(scenarioDir)}";
+        }
+
+        var runner = new ScenarioRunner(appExe, engineFor, ScenarioRunner.GateFor) { FrozenScenarios = frozen ? scenarioDir : null };
         await output.WriteLineAsync($"Transcripts go to {Path.GetFullPath(outDir)}").ConfigureAwait(false);
 
         int succeeded = 0, infraErrors = 0, runs = 0;
-        foreach (var s in scenarios)
+        try
         {
-            for (var pass = 1; pass <= passes; pass++)
+            foreach (var s in scenarios)
             {
-                var t = await runner.RunAsync(s, pass, outDir, ct).ConfigureAwait(false);
-                runs++;
-                succeeded += t.Success ? 1 : 0;
-                infraErrors += t.InfraError ? 1 : 0;
-                await output.WriteLineAsync(Line(t)).ConfigureAwait(false);
+                for (var pass = 1; pass <= passes; pass++)
+                {
+                    var t = await runner.RunAsync(s, pass, outDir, ct).ConfigureAwait(false);
+                    runs++;
+                    succeeded += t.Success ? 1 : 0;
+                    infraErrors += t.InfraError ? 1 : 0;
+                    await output.WriteLineAsync(Line(t)).ConfigureAwait(false);
+                }
             }
+        }
+        catch (FreezeBrokenException e)
+        {
+            // Something changed after the run began: the runs so far stand, and none starts after it.
+            await error.WriteLineAsync($"{e.Message} The study stops here, after {runs} runs.").ConfigureAwait(false);
+            return Failed;
         }
 
         await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture, $"{succeeded} of {runs} runs succeeded; {infraErrors} infrastructure errors.")).ConfigureAwait(false);
@@ -282,6 +351,17 @@ internal static class Program
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < args.Length; i += 2)
         {
+            if (RunFlags.Contains(args[i], StringComparer.Ordinal))
+            {
+                if (!options.TryAdd(args[i], string.Empty))
+                {
+                    return null;
+                }
+
+                i--; // a flag has no value: the next argument is an option
+                continue;
+            }
+
             if (!RunOptions.Contains(args[i], StringComparer.Ordinal) || i + 1 >= args.Length || !options.TryAdd(args[i], args[i + 1]))
             {
                 return null;

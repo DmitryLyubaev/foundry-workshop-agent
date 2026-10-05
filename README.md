@@ -227,6 +227,8 @@ and nothing starts.
 ```
 dotnet run --project src/Workshop.Agent -- run --engine fake --scenarios scenarios --script-dir tests/Workshop.Agent.Tests/Scripts [--only s05] [--passes 3] [--out <dir>]
 dotnet run --project src/Workshop.Agent -- scenarios check scenarios
+dotnet run --project src/Workshop.Agent -- scenarios freeze <dir>   # writes <dir>/freeze.json; see scenarios/README.md
+# run --study (freeze verified, exactly 3 passes) and run --frozen (freeze verified, any passes) refuse on drift
 ```
 
 Each run starts the app on a fresh seeded database in its own temporary directory, with the
