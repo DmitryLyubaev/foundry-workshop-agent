@@ -1,0 +1,38 @@
+# The evaluation package's dependencies, every one pinned so CI and the owner's PC resolve the same set.
+# Direct: azure-ai-projects (2.x: the project's OpenAI client, whose evals API runs the cloud evaluation),
+# azure-identity (keyless sign-in) and pytest. openai is pinned too: the evals calls go through it.
+annotated-types==0.8.0
+anyio==4.15.1
+azure-ai-projects==2.7.0
+azure-core==1.41.0
+azure-identity==1.26.0
+azure-storage-blob==12.31.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.2
+colorama==0.4.6
+cryptography==50.0.2
+h11==0.16.0
+httpcore2==2.13.1
+httpx2==2.13.1
+idna==3.20
+iniconfig==2.3.0
+isodate==0.7.2
+jiter==0.17.0
+msal==1.39.0
+msal-extensions==1.3.1
+openai==3.24.0
+packaging==26.3
+pluggy==1.6.0
+pycparser==3.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+Pygments==2.21.0
+PyJWT==2.15.1
+pytest==9.1.1
+requests==2.34.2
+sniffio==1.3.1
+truststore==0.10.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.8.0

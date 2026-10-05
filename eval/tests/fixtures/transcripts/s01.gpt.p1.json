@@ -1,0 +1,76 @@
+{
+  "scenarioId": "s01",
+  "pass": 1,
+  "engine": "gpt",
+  "model": "gpt-5.6-luna",
+  "deployment": "gpt-5.6-luna",
+  "agentVersion": "3",
+  "task": "Made-up task for s01.",
+  "instructionsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "settingsSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "outcome": "completed",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1200,
+      "outputTokens": 40,
+      "ms": 900.0,
+      "finishReason": "tool_calls"
+    },
+    {
+      "index": 2,
+      "inputTokens": 1900,
+      "outputTokens": 30,
+      "ms": 700.0,
+      "finishReason": "tool_calls"
+    },
+    {
+      "index": 3,
+      "inputTokens": 2600,
+      "outputTokens": 60,
+      "ms": 800.0,
+      "finishReason": "stop"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "describe_screen",
+      "arguments": {},
+      "outcome": "ok",
+      "message": null,
+      "screenId": "jobs",
+      "ms": 35.0,
+      "approved": null,
+      "result": "{\"id\":\"jobs\",\"title\":\"Jobs\",\"fields\":[{\"id\":\"search\",\"label\":\"Search\",\"value\":\"\"}],\"buttons\":[{\"id\":\"cancel_job\",\"label\":\"Cancel job\",\"destructive\":true}],\"lists\":[]}"
+    },
+    {
+      "index": 2,
+      "modelCallIndex": 2,
+      "tool": "set_field",
+      "arguments": {
+        "field": "search",
+        "value": "Lee"
+      },
+      "outcome": "ok",
+      "message": null,
+      "screenId": "jobs",
+      "ms": 52.0,
+      "approved": null,
+      "result": "{\"outcome\":\"ok\",\"message\":null,\"screen\":{\"id\":\"jobs\",\"title\":\"Jobs\",\"fields\":[],\"buttons\":[],\"lists\":[]}}"
+    }
+  ],
+  "finalReply": "The Lee family's printer job, J-2001, is diagnosing.",
+  "gateViolations": 0,
+  "check": {
+    "passed": true,
+    "failures": []
+  },
+  "success": true,
+  "ms": 9500.0,
+  "startedAt": "2026-10-07T09:30:00+00:00",
+  "error": null
+}

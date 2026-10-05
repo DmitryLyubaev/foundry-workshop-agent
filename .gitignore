@@ -29,3 +29,8 @@ infra/**/*_override.tf
 infra/**/*_override.tf.json
 infra/**/crash*.log
 # .terraform.lock.hcl is committed on purpose: it pins the providers' exact versions and checksums.
+
+# The evaluation package's local virtual environment and Python caches.
+eval/.venv/
+__pycache__/
+.pytest_cache/

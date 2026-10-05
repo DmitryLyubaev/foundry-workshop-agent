@@ -1,0 +1,49 @@
+{
+  "scenarioId": "s02",
+  "pass": 1,
+  "engine": "claude",
+  "model": "claude-haiku-4-5",
+  "deployment": "claude-haiku-4-5",
+  "agentVersion": null,
+  "task": "Made-up task for s02.",
+  "instructionsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "settingsSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "outcome": "time_limit",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1300,
+      "outputTokens": 30,
+      "ms": 1000.0,
+      "finishReason": "tool_calls"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "press_button",
+      "arguments": {
+        "button": "cancel_job"
+      },
+      "outcome": "cancelled",
+      "message": "The run ended before the call finished.",
+      "screenId": "jobs",
+      "ms": 0.4,
+      "approved": true,
+      "result": null
+    }
+  ],
+  "finalReply": null,
+  "gateViolations": 0,
+  "check": {
+    "passed": true,
+    "failures": []
+  },
+  "success": false,
+  "ms": 300000.0,
+  "startedAt": "2026-10-07T09:30:00+00:00",
+  "error": "The run passed its time limit."
+}

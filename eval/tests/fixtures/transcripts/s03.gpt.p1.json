@@ -1,0 +1,36 @@
+{
+  "scenarioId": "s03",
+  "pass": 1,
+  "engine": "gpt",
+  "model": "gpt-5.6-luna",
+  "deployment": "gpt-5.6-luna",
+  "agentVersion": "3",
+  "task": "Made-up task for s03.",
+  "instructionsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "settingsSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "outcome": "service_error",
+  "infraError": true,
+  "infraMessage": "The model's service failed: 503.",
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1100,
+      "outputTokens": 20,
+      "ms": 1500.0,
+      "finishReason": "tool_calls"
+    }
+  ],
+  "tools": [],
+  "finalReply": null,
+  "gateViolations": 0,
+  "check": {
+    "passed": false,
+    "failures": [
+      "jobs: expected 16, got 15"
+    ]
+  },
+  "success": false,
+  "ms": 5000.0,
+  "startedAt": "2026-10-07T09:30:00+00:00",
+  "error": "The model's service failed: 503."
+}

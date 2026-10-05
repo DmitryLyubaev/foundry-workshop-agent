@@ -1,0 +1,73 @@
+{
+  "scenarioId": "s01",
+  "pass": 1,
+  "engine": "claude",
+  "model": "claude-haiku-4-5",
+  "deployment": "claude-haiku-4-5",
+  "agentVersion": null,
+  "task": "Made-up task for s01.",
+  "instructionsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "settingsSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "outcome": "completed",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1500,
+      "outputTokens": 80,
+      "ms": 1100.0,
+      "finishReason": "tool_calls"
+    },
+    {
+      "index": 2,
+      "inputTokens": 2400,
+      "outputTokens": 45,
+      "ms": 900.0,
+      "finishReason": "stop"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "open_screen",
+      "arguments": {
+        "screen": "jobs"
+      },
+      "outcome": "ok",
+      "message": null,
+      "screenId": "jobs",
+      "ms": 60.0,
+      "approved": null,
+      "result": "{\"outcome\":\"ok\",\"message\":null,\"screen\":{\"id\":\"jobs\",\"title\":\"Jobs\",\"fields\":[],\"buttons\":[],\"lists\":[]}}"
+    },
+    {
+      "index": 2,
+      "modelCallIndex": 1,
+      "tool": "set_field",
+      "arguments": {
+        "field": "serch",
+        "value": "Lee"
+      },
+      "outcome": "not_found",
+      "message": "There is no field 'serch' on this screen.",
+      "screenId": "jobs",
+      "ms": 20.0,
+      "approved": null,
+      "result": "{\"outcome\":\"not_found\",\"message\":\"There is no field 'serch' on this screen.\",\"screen\":{\"id\":\"jobs\",\"title\":\"Jobs\",\"fields\":[],\"buttons\":[],\"lists\":[]}}"
+    }
+  ],
+  "finalReply": "I could not find the Lee family's job.",
+  "gateViolations": 0,
+  "check": {
+    "passed": false,
+    "failures": [
+      "jobs: expected 16, got 15"
+    ]
+  },
+  "success": false,
+  "ms": 11000.0,
+  "startedAt": "2026-10-07T09:30:00+00:00",
+  "error": null
+}
