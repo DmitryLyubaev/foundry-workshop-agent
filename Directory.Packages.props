@@ -29,7 +29,15 @@
     <PackageVersion Include="Anthropic" Version="12.31.0" />
     <PackageVersion Include="Anthropic.Foundry" Version="0.7.1" />
   </ItemGroup>
+  <ItemGroup Label="Traces">
+    <!-- Sends the agent's spans to Application Insights, signed in with Entra (spec §4.7). -->
+    <PackageVersion Include="Azure.Monitor.OpenTelemetry.Exporter" Version="1.9.0" />
+    <!-- Not referenced directly: pinned so the agent and its tests (OpenTelemetry.Exporter.InMemory) load the same SDK. -->
+    <PackageVersion Include="OpenTelemetry" Version="1.19.1" />
+  </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <!-- The trace export tests read the spans from memory, not from Application Insights. -->
+    <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.19.1" />
   </ItemGroup>
 </Project>

@@ -253,6 +253,14 @@ from the content filter ends the run `content_filtered`; any other 4xx is the mo
 a transcript, the console or a trace: GUIDs, URLs, Azure, Microsoft and Anthropic host names,
 resource and project paths, email addresses and tokens become placeholders such as `<guid>`.
 
+`run --trace` sends the traces to the Application Insights that `FWA_APPINSIGHTS_CONNECTION_STRING`
+names (without it, nothing starts), signed in with the Azure CLI: Entra, no key. They hold the
+agent's own spans (`Workshop.Agent`), Agent Framework's run span (`Experimental.Microsoft.Agents.AI`)
+and the Foundry SDK's GenAI spans (`Azure.AI.Projects.*`). Every span is redacted as above before it
+is sent, and one holding an identifier that cannot be redacted is not sent. The messages, tool
+arguments and tool results are left out; `--trace-content` puts them in, for development only, and
+is refused with `--study` and `--frozen`.
+
 ## Security model
 
 - **Loopback only.** The endpoint is constructed for `127.0.0.1` only and refuses any other

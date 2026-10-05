@@ -5,6 +5,7 @@ using Workshop.Agent.Engines.Claude;
 using Workshop.Agent.Engines.Foundry;
 using Workshop.Agent.Runner;
 using Workshop.Agent.Scenarios;
+using Workshop.Agent.Telemetry;
 using Workshop.Agent.Tools;
 
 namespace Workshop.Agent;
@@ -14,8 +15,8 @@ namespace Workshop.Agent;
 /// <c>scenarios check</c> reads a scenario set and reports its first problem; <c>scenarios freeze</c>
 /// writes the set's <c>freeze.json</c>. Exit codes: 0 done; 1 a run met an infrastructure error, the
 /// scenario set is invalid, the freeze is missing or broken, the app is missing, or the GPT prompt
-/// agent could not be made to hold the code's definition; 2 a bad command line, or a Foundry setting
-/// missing.
+/// agent could not be made to hold the code's definition; 2 a bad command line, a Foundry setting
+/// missing, or <c>--trace</c> without a usable Application Insights connection string.
 /// </summary>
 internal static class Program
 {
@@ -23,7 +24,7 @@ internal static class Program
         Usage:
           Workshop.Agent run --engine fake|gpt|claude --scenarios <dir> [--only <id>] [--passes <n>] [--out <dir>] [--script-dir <dir>] [--app <exe>]
                              [--project-endpoint <url>] [--resource-endpoint <url>] [--gpt-deployment <name>] [--claude-deployment <name>] [--agent-name <name>]
-                             [--study | --frozen]
+                             [--study | --frozen] [--trace [--trace-content]]
           Workshop.Agent scenarios check <dir>
           Workshop.Agent scenarios freeze <dir>
 
@@ -38,6 +39,10 @@ internal static class Program
           --study       a study run: <scenarios>/freeze.json must match the scenarios, instructions, settings, tools and
                         decision rule, or no run starts; runs exactly 3 passes, in an output directory named with the freeze's short hash.
           --frozen      the same check with any number of passes and the output directory as given.
+          --trace       sends the traces to the Application Insights FWA_APPINSIGHTS_CONNECTION_STRING names,
+                        signed in with the Azure CLI; without message content.
+          --trace-content  also puts the messages, tool arguments and tool results in the traces: for development
+                        only, never with --study or --frozen.
           scenarios freeze  writes <dir>/freeze.json: a SHA-256 for each scenario and for the instructions, settings and tools,
                         and the decision rule. It does not overwrite a freeze.
 
@@ -52,9 +57,11 @@ internal static class Program
 
     private const string StudyFlag = "--study";
     private const string FrozenFlag = "--frozen";
+    private const string TraceFlag = "--trace";
+    private const string TraceContentFlag = "--trace-content";
 
     /// <summary>The options that take no value.</summary>
-    private static readonly string[] RunFlags = [StudyFlag, FrozenFlag];
+    private static readonly string[] RunFlags = [StudyFlag, FrozenFlag, TraceFlag, TraceContentFlag];
 
     private static readonly string[] RunOptions =
         ["--engine", "--scenarios", "--only", "--passes", "--out", "--script-dir", "--app", .. FoundryOptions.Settings.Select(s => s.Option)];
@@ -147,6 +154,15 @@ internal static class Program
             return BadCommandLine;
         }
 
+        // Before anything is read or started, as a missing Foundry setting is: a traced run that could not send its trace does not begin.
+        string? traceTo = null;
+        var traceContent = options.ContainsKey(TraceContentFlag);
+        if (TraceSettings(options, environment, ref traceTo) is { } traceProblem)
+        {
+            await error.WriteLineAsync(traceProblem).ConfigureAwait(false);
+            return BadCommandLine;
+        }
+
         var study = options.ContainsKey(StudyFlag);
         if (study)
         {
@@ -223,6 +239,30 @@ internal static class Program
             }
         }
 
+        // Before any Foundry client is made: the SDK reads its tracing switches once. Disposed last, sending what is left.
+        IDisposable? tracing = null;
+        if (traceTo is not null)
+        {
+            try
+            {
+                tracing = StartTrace(traceTo, traceContent);
+            }
+            catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+            {
+                // A malformed connection string; the exporter's message quotes the part it could not read, so it is redacted.
+                await error.WriteLineAsync($"{TraceExport.ConnectionStringVariable} cannot be used, so no run starts: {Redaction.Describe(e, fullName: false)}").ConfigureAwait(false);
+                return BadCommandLine;
+            }
+        }
+
+        using var traced = tracing;
+        if (tracing is not null)
+        {
+            await output.WriteLineAsync(traceContent
+                ? "Traces go to Application Insights, with the messages, tool arguments and tool results: for development only."
+                : "Traces go to Application Insights, without message content.").ConfigureAwait(false);
+        }
+
         Func<Scenario, EngineRun, IAgentEngine> engineFor;
         if (foundry is null)
         {
@@ -289,6 +329,49 @@ internal static class Program
         // A task failure is a result, not an error; a run that never got to try is.
         return infraErrors == 0 ? Done : Failed;
     }
+
+    /// <summary>
+    /// What is wrong with the trace options, or null; <paramref name="connectionString"/> is set when
+    /// <c>--trace</c> is given and its connection string is.
+    /// </summary>
+    private static string? TraceSettings(Dictionary<string, string> options, Func<string, string?> environment, ref string? connectionString)
+    {
+        var trace = options.ContainsKey(TraceFlag);
+        if (options.ContainsKey(TraceContentFlag))
+        {
+            if (!trace)
+            {
+                return $"{TraceContentFlag} needs {TraceFlag}.";
+            }
+
+            // The messages may name customers and devices: a study's trace holds none.
+            if (options.ContainsKey(StudyFlag) || options.ContainsKey(FrozenFlag))
+            {
+                return $"{TraceContentFlag} is for development only: it cannot be used with {StudyFlag} or {FrozenFlag}.";
+            }
+        }
+
+        if (!trace)
+        {
+            return null;
+        }
+
+        connectionString = environment(TraceExport.ConnectionStringVariable);
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            connectionString = null;
+            return $"{TraceExport.ConnectionStringVariable} is not set: {TraceFlag} sends the traces to the Application Insights it names. Set it, or leave out {TraceFlag}.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The trace export, signed in with the Azure CLI. Its own credential: the exporter's pipeline keeps
+    /// its Azure Monitor token, and a shared cache holding one scope would swap it with the engines' each call.
+    /// </summary>
+    private static IDisposable StartTrace(string connectionString, bool captureContent) =>
+        TraceExport.Start(connectionString, new AzureCliCredential(), captureContent);
 
     /// <summary>Every scenario's script, read before the first app starts, so a missing or broken one stops nothing half-way; null after reporting one.</summary>
     private static async Task<Dictionary<string, Script>?> LoadScriptsAsync(Scenario[] scenarios, string scriptDir, TextWriter error)

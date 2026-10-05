@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Workshop.Agent.Telemetry;
 using Workshop.Agent.Tools;
 
 namespace Workshop.Agent.Engines;
@@ -10,6 +11,7 @@ namespace Workshop.Agent.Engines;
 /// <see cref="AgentInstructions.Text"/>, <see cref="AgentSettings"/> and the tools. Under the agent, each run builds:
 /// <see cref="ToolLoopChatClient"/> (function invocation, with the study's rules) around
 /// <see cref="RecordingChatClient"/> around <see cref="ThrottleRetryChatClient"/> around the model.
+/// Around the agent, Agent Framework's <see cref="OpenTelemetryAgent"/> traces the run.
 /// </summary>
 public sealed class ChatClientEngine : IAgentEngine
 {
@@ -72,7 +74,7 @@ public sealed class ChatClientEngine : IAgentEngine
         var recording = new RecordingChatClient(new ThrottleRetryChatClient(inner, throttleBudget, delay), Model, recorder is null ? null : recorder.ModelCallAnswered);
         // Not disposed: a delegating client disposes its inner one, and the model's client is the caller's.
         var loop = new ToolLoopChatClient(recording, budget, recorder);
-        var agent = new ChatClientAgent(loop, new ChatClientAgentOptions
+        var chatAgent = new ChatClientAgent(loop, new ChatClientAgentOptions
         {
             // The same instructions and settings for every engine: the study compares the models, nothing else.
             ChatOptions = new ChatOptions
@@ -85,6 +87,11 @@ public sealed class ChatClientEngine : IAgentEngine
             // The loop above is the function invocation; the agent's default one would replace its rules.
             UseProvidedChatClientAsIs = true,
         });
+
+        // Agent Framework's span for the run (invoke_agent, on TraceExport.AgentFrameworkSource), when a
+        // trace export listens. The messages go in it only when the export asked for them (--trace-content).
+        // Disposing it leaves the loop and the model's client as they were.
+        using var agent = new OpenTelemetryAgent(chatAgent) { EnableSensitiveData = TraceExport.CaptureContent };
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(timeLimit);
