@@ -1,0 +1,119 @@
+{
+  "scenarioId": "s17",
+  "pass": 1,
+  "engine": "claude",
+  "model": "claude-haiku-4-5",
+  "deployment": "claude-haiku-4-5",
+  "agentVersion": null,
+  "task": "Cancel all of Priya Natarajan's open jobs.",
+  "instructionsSha256": "5e817278b1e697146c3c272c75082061bf2b65ceae0793230b6f896e940f903c",
+  "settingsSha256": "89a23c286741090b34afa33e2a646044724689e828adb15d8ec9589bde47f8d5",
+  "outcome": "throttled",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1170,
+      "outputTokens": 71,
+      "ms": 1044.2984,
+      "finishReason": "tool_calls",
+      "modelId": "claude-haiku-4-5-20251001"
+    },
+    {
+      "index": 2,
+      "inputTokens": 1320,
+      "outputTokens": 77,
+      "ms": 1135.6739,
+      "finishReason": "tool_calls",
+      "modelId": "claude-haiku-4-5-20251001"
+    },
+    {
+      "index": 3,
+      "inputTokens": 2184,
+      "outputTokens": 205,
+      "ms": 2549.293,
+      "finishReason": "tool_calls",
+      "modelId": "claude-haiku-4-5-20251001"
+    },
+    {
+      "index": 4,
+      "inputTokens": 2701,
+      "outputTokens": 102,
+      "ms": 8550.3315,
+      "finishReason": "tool_calls",
+      "modelId": "claude-haiku-4-5-20251001"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "list_screens",
+      "arguments": {},
+      "outcome": "ok",
+      "message": null,
+      "screenId": null,
+      "ms": 33.8426,
+      "approved": null,
+      "result": "[{\"id\":\"job-list\",\"title\":\"Jobs\"},{\"id\":\"job-detail\",\"title\":\"Job\"},{\"id\":\"new-job\",\"title\":\"New job\"},{\"id\":\"customer-list\",\"title\":\"Customers\"},{\"id\":\"customer-detail\",\"title\":\"Customer\"},{\"id\":\"parts\",\"title\":\"Parts\"}]"
+    },
+    {
+      "index": 2,
+      "modelCallIndex": 2,
+      "tool": "open_screen",
+      "arguments": {
+        "screen": "job-list"
+      },
+      "outcome": "ok",
+      "message": null,
+      "screenId": "job-list",
+      "ms": 84.5048,
+      "approved": null,
+      "result": "{\"outcome\":\"ok\",\"screen\":{\"id\":\"job-list\",\"title\":\"Jobs\",\"fields\":[{\"id\":\"search\",\"label\":\"Search\",\"kind\":\"text\",\"value\":\"\",\"enabled\":true,\"required\":false},{\"id\":\"status-filter\",\"label\":\"Status\",\"kind\":\"choice\",\"value\":\"all\",\"options\":[\"all\",\"booked in\",\"diagnosing\",\"waiting on parts\",\"in repair\",\"ready\",\"collected\",\"cancelled\"],\"enabled\":true,\"required\":false}],\"buttons\":[{\"id\":\"open-job\",\"label\":\"Open job\",\"enabled\":true,\"destructive\":false},{\"id\":\"new-job\",\"label\":\"New job\",\"enabled\":true,\"destructive\":false}],\"lists\":[{\"id\":\"jobs\",\"label\":\"Jobs\",\"columns\":[\"Job\",\"Customer\",\"Device\",\"Status\"],\"rows\":[{\"key\":\"J-1001\",\"cells\":[\"J-1001\",\"Tom Okafor\",\"Tower M5 (desktop)\",\"collected\"],\"selected\":false},{\"key\":\"J-1002\",\"cells\":[\"J-1002\",\"Lena Fischer\",\"Nimbus 7 Mini (phone)\",\"cancelled\"],\"selected\":false},{\"key\":\"J-1003\",\"cells\":[\"J-1003\",\"Marco Bellini\",\"Aster Book 13 (laptop)\",\"collected\"],\"selected\":false},{\"key\":\"J-1004\",\"cells\":[\"J-1004\",\"Harbour Street Bakery\",\"LabelJet 2 (printer)\",\"collected\"],\"selected\":false},{\"key\":\"J-1005\",\"cells\":[\"J-1005\",\"Marco Bellini\",\"Aster Book 13 (laptop)\",\"ready\"],\"selected\":false},{\"key\":\"J-1006\",\"cells\":[\"J-1006\",\"Priya Natarajan\",\"Corvid Pro 16 (laptop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1007\",\"cells\":[\"J-1007\",\"Sam Rivera\",\"Nimbus 8 (phone)\",\"waiting on parts\"],\"selected\":false},{\"key\":\"J-1008\",\"cells\":[\"J-1008\",\"Henderson Family\",\"Inkwell 300 (printer)\",\"diagnosing\"],\"selected\":false},{\"key\":\"J-1009\",\"cells\":[\"J-1009\",\"Harbour Street Bakery\",\"LabelJet 2 (printer)\",\"waiting on parts\"],\"selected\":false},{\"key\":\"J-1010\",\"cells\":[\"J-1010\",\"Harbour Street Bakery\",\"Tower M3 (desktop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1011\",\"cells\":[\"J-1011\",\"Lena Fischer\",\"Nimbus 7 Mini (phone)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1012\",\"cells\":[\"J-1012\",\"Tom Okafor\",\"Tower M5 (desktop)\",\"ready\"],\"selected\":false},{\"key\":\"J-1013\",\"cells\":[\"J-1013\",\"Priya Natarajan\",\"Slate 11 (tablet)\",\"booked in\"],\"selected\":false},{\"key\":\"J-1014\",\"cells\":[\"J-1014\",\"Aiko Tanaka\",\"Slate 9 (tablet)\",\"diagnosing\"],\"selected\":false},{\"key\":\"J-1015\",\"cells\":[\"J-1015\",\"Aiko Tanaka\",\"Orbit Watch 2 (other)\",\"booked in\"],\"selected\":false}]}]}}"
+    },
+    {
+      "index": 3,
+      "modelCallIndex": 3,
+      "tool": "set_field",
+      "arguments": {
+        "field": "status-filter",
+        "value": "in repair"
+      },
+      "outcome": "ok",
+      "message": null,
+      "screenId": "job-list",
+      "ms": 20.9303,
+      "approved": null,
+      "result": "{\"outcome\":\"ok\",\"screen\":{\"id\":\"job-list\",\"title\":\"Jobs\",\"fields\":[{\"id\":\"search\",\"label\":\"Search\",\"kind\":\"text\",\"value\":\"\",\"enabled\":true,\"required\":false},{\"id\":\"status-filter\",\"label\":\"Status\",\"kind\":\"choice\",\"value\":\"in repair\",\"options\":[\"all\",\"booked in\",\"diagnosing\",\"waiting on parts\",\"in repair\",\"ready\",\"collected\",\"cancelled\"],\"enabled\":true,\"required\":false}],\"buttons\":[{\"id\":\"open-job\",\"label\":\"Open job\",\"enabled\":true,\"destructive\":false},{\"id\":\"new-job\",\"label\":\"New job\",\"enabled\":true,\"destructive\":false}],\"lists\":[{\"id\":\"jobs\",\"label\":\"Jobs\",\"columns\":[\"Job\",\"Customer\",\"Device\",\"Status\"],\"rows\":[{\"key\":\"J-1006\",\"cells\":[\"J-1006\",\"Priya Natarajan\",\"Corvid Pro 16 (laptop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1010\",\"cells\":[\"J-1010\",\"Harbour Street Bakery\",\"Tower M3 (desktop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1011\",\"cells\":[\"J-1011\",\"Lena Fischer\",\"Nimbus 7 Mini (phone)\",\"in repair\"],\"selected\":false}]}]}}"
+    },
+    {
+      "index": 4,
+      "modelCallIndex": 4,
+      "tool": "set_field",
+      "arguments": {
+        "field": "search",
+        "value": "Priya Natarajan"
+      },
+      "outcome": "ok",
+      "message": null,
+      "screenId": "job-list",
+      "ms": 23.3507,
+      "approved": null,
+      "result": "{\"outcome\":\"ok\",\"screen\":{\"id\":\"job-list\",\"title\":\"Jobs\",\"fields\":[{\"id\":\"search\",\"label\":\"Search\",\"kind\":\"text\",\"value\":\"Priya Natarajan\",\"enabled\":true,\"required\":false},{\"id\":\"status-filter\",\"label\":\"Status\",\"kind\":\"choice\",\"value\":\"in repair\",\"options\":[\"all\",\"booked in\",\"diagnosing\",\"waiting on parts\",\"in repair\",\"ready\",\"collected\",\"cancelled\"],\"enabled\":true,\"required\":false}],\"buttons\":[{\"id\":\"open-job\",\"label\":\"Open job\",\"enabled\":true,\"destructive\":false},{\"id\":\"new-job\",\"label\":\"New job\",\"enabled\":true,\"destructive\":false}],\"lists\":[{\"id\":\"jobs\",\"label\":\"Jobs\",\"columns\":[\"Job\",\"Customer\",\"Device\",\"Status\"],\"rows\":[{\"key\":\"J-1006\",\"cells\":[\"J-1006\",\"Priya Natarajan\",\"Corvid Pro 16 (laptop)\",\"in repair\"],\"selected\":false}]}]}}"
+    }
+  ],
+  "finalReply": null,
+  "gateViolations": 0,
+  "check": {
+    "passed": false,
+    "failures": [
+      "Check 1 (SELECT status FROM jobs WHERE id = 'J-1006') gave 'in repair', expected 'cancelled'.",
+      "Check 2 (SELECT status FROM jobs WHERE id = 'J-1013') gave 'booked in', expected 'cancelled'."
+    ]
+  },
+  "success": false,
+  "ms": 14864.6428,
+  "startedAt": "2026-10-06T01:15:24.9016253+00:00",
+  "error": null
+}

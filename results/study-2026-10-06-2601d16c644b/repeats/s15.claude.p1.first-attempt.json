@@ -1,0 +1,50 @@
+{
+  "scenarioId": "s15",
+  "pass": 1,
+  "engine": "claude",
+  "model": "claude-haiku-4-5",
+  "deployment": "claude-haiku-4-5",
+  "agentVersion": null,
+  "task": "Cancel Lena Fischer's charging-port job; she no longer wants it.",
+  "instructionsSha256": "5e817278b1e697146c3c272c75082061bf2b65ceae0793230b6f896e940f903c",
+  "settingsSha256": "89a23c286741090b34afa33e2a646044724689e828adb15d8ec9589bde47f8d5",
+  "outcome": "throttled",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 1173,
+      "outputTokens": 64,
+      "ms": 1029.6346,
+      "finishReason": "tool_calls",
+      "modelId": "claude-haiku-4-5-20251001"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "list_screens",
+      "arguments": {},
+      "outcome": "ok",
+      "message": null,
+      "screenId": null,
+      "ms": 36.9824,
+      "approved": null,
+      "result": "[{\"id\":\"job-list\",\"title\":\"Jobs\"},{\"id\":\"job-detail\",\"title\":\"Job\"},{\"id\":\"new-job\",\"title\":\"New job\"},{\"id\":\"customer-list\",\"title\":\"Customers\"},{\"id\":\"customer-detail\",\"title\":\"Customer\"},{\"id\":\"parts\",\"title\":\"Parts\"}]"
+    }
+  ],
+  "finalReply": null,
+  "gateViolations": 0,
+  "check": {
+    "passed": false,
+    "failures": [
+      "Check 1 (SELECT status FROM jobs WHERE id = 'J-1011') gave 'in repair', expected 'cancelled'."
+    ]
+  },
+  "success": false,
+  "ms": 35220.6164,
+  "startedAt": "2026-10-06T01:13:00.9422377+00:00",
+  "error": null
+}

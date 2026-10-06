@@ -1,0 +1,56 @@
+{
+  "scenarioId": "s01",
+  "pass": 2,
+  "engine": "gpt",
+  "model": "gpt-5.6-luna",
+  "deployment": "gpt-5.6-luna",
+  "agentVersion": "1",
+  "task": "What's the status of the Henderson family's printer job?",
+  "instructionsSha256": "5e817278b1e697146c3c272c75082061bf2b65ceae0793230b6f896e940f903c",
+  "settingsSha256": "89a23c286741090b34afa33e2a646044724689e828adb15d8ec9589bde47f8d5",
+  "outcome": "completed",
+  "infraError": false,
+  "infraMessage": null,
+  "calls": [
+    {
+      "index": 1,
+      "inputTokens": 436,
+      "outputTokens": 29,
+      "ms": 1649.838,
+      "finishReason": null,
+      "modelId": "gpt-5.6-luna"
+    },
+    {
+      "index": 2,
+      "inputTokens": 1157,
+      "outputTokens": 62,
+      "ms": 1623.1705,
+      "finishReason": null,
+      "modelId": "gpt-5.6-luna"
+    }
+  ],
+  "tools": [
+    {
+      "index": 1,
+      "modelCallIndex": 1,
+      "tool": "describe_screen",
+      "arguments": {},
+      "outcome": "ok",
+      "message": null,
+      "screenId": "job-list",
+      "ms": 72.1205,
+      "approved": null,
+      "result": "{\"id\":\"job-list\",\"title\":\"Jobs\",\"fields\":[{\"id\":\"search\",\"label\":\"Search\",\"kind\":\"text\",\"value\":\"\",\"enabled\":true,\"required\":false},{\"id\":\"status-filter\",\"label\":\"Status\",\"kind\":\"choice\",\"value\":\"all\",\"options\":[\"all\",\"booked in\",\"diagnosing\",\"waiting on parts\",\"in repair\",\"ready\",\"collected\",\"cancelled\"],\"enabled\":true,\"required\":false}],\"buttons\":[{\"id\":\"open-job\",\"label\":\"Open job\",\"enabled\":true,\"destructive\":false},{\"id\":\"new-job\",\"label\":\"New job\",\"enabled\":true,\"destructive\":false}],\"lists\":[{\"id\":\"jobs\",\"label\":\"Jobs\",\"columns\":[\"Job\",\"Customer\",\"Device\",\"Status\"],\"rows\":[{\"key\":\"J-1001\",\"cells\":[\"J-1001\",\"Tom Okafor\",\"Tower M5 (desktop)\",\"collected\"],\"selected\":false},{\"key\":\"J-1002\",\"cells\":[\"J-1002\",\"Lena Fischer\",\"Nimbus 7 Mini (phone)\",\"cancelled\"],\"selected\":false},{\"key\":\"J-1003\",\"cells\":[\"J-1003\",\"Marco Bellini\",\"Aster Book 13 (laptop)\",\"collected\"],\"selected\":false},{\"key\":\"J-1004\",\"cells\":[\"J-1004\",\"Harbour Street Bakery\",\"LabelJet 2 (printer)\",\"collected\"],\"selected\":false},{\"key\":\"J-1005\",\"cells\":[\"J-1005\",\"Marco Bellini\",\"Aster Book 13 (laptop)\",\"ready\"],\"selected\":false},{\"key\":\"J-1006\",\"cells\":[\"J-1006\",\"Priya Natarajan\",\"Corvid Pro 16 (laptop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1007\",\"cells\":[\"J-1007\",\"Sam Rivera\",\"Nimbus 8 (phone)\",\"waiting on parts\"],\"selected\":false},{\"key\":\"J-1008\",\"cells\":[\"J-1008\",\"Henderson Family\",\"Inkwell 300 (printer)\",\"diagnosing\"],\"selected\":false},{\"key\":\"J-1009\",\"cells\":[\"J-1009\",\"Harbour Street Bakery\",\"LabelJet 2 (printer)\",\"waiting on parts\"],\"selected\":false},{\"key\":\"J-1010\",\"cells\":[\"J-1010\",\"Harbour Street Bakery\",\"Tower M3 (desktop)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1011\",\"cells\":[\"J-1011\",\"Lena Fischer\",\"Nimbus 7 Mini (phone)\",\"in repair\"],\"selected\":false},{\"key\":\"J-1012\",\"cells\":[\"J-1012\",\"Tom Okafor\",\"Tower M5 (desktop)\",\"ready\"],\"selected\":false},{\"key\":\"J-1013\",\"cells\":[\"J-1013\",\"Priya Natarajan\",\"Slate 11 (tablet)\",\"booked in\"],\"selected\":false},{\"key\":\"J-1014\",\"cells\":[\"J-1014\",\"Aiko Tanaka\",\"Slate 9 (tablet)\",\"diagnosing\"],\"selected\":false},{\"key\":\"J-1015\",\"cells\":[\"J-1015\",\"Aiko Tanaka\",\"Orbit Watch 2 (other)\",\"booked in\"],\"selected\":false}]}]}"
+    }
+  ],
+  "finalReply": "The Henderson family’s printer job **J-1008** for an **Inkwell 300** is currently **diagnosing**.",
+  "gateViolations": 0,
+  "check": {
+    "passed": true,
+    "failures": []
+  },
+  "success": true,
+  "ms": 4920.0436,
+  "startedAt": "2026-10-06T00:36:44.7798272+00:00",
+  "error": null
+}

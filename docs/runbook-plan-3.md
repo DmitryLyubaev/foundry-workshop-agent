@@ -1433,7 +1433,7 @@ In WSL:
 | Scoring, per transcript | | $0.0051 (judge: 112,638 input and 6,620 output tokens for 6 transcripts, from the resource's metrics) |
 | Smoke test (step 5) | about $0.10 | about $0.02, scoring included |
 | Dry run (step 6) | about $1 | about $0.30, scoring included. There were two dry runs: the first, at capacity 25, throttled Claude on s17 |
-| **The study (step 7)**: 60 × GPT + 60 × Claude + 120 × scoring | **about $3** | **about $3.45** (0.37 + 2.45 + 0.61) |
+| **The study (step 7)**: 60 × GPT + 60 × Claude + 120 × scoring | **about $3** | forecast about $3.45 (0.37 + 2.45 + 0.61); actual about $3.2: GPT $0.28, Claude $1.78, the Claude repeats about $0.5, scoring about $0.6 |
 | Each live CI evaluation: 20 × GPT + 20 × scoring | about $1 | about $0.22 |
 | Application Insights | within the monthly free allowance (unverified) | |
 
@@ -1465,7 +1465,7 @@ identifiers, yes or no.
 | No bare resource name or other identifier in the smoke outputs | 5.7 | none, and no user or machine name either |
 | The models the services say answered (`calls[].modelId`), for GPT and Claude | 5.1 | `gpt-5.6-luna`; `claude-haiku-4-5-20251001` |
 | The agent version stays the same across starts | 6.1 | yes: version 1 throughout |
-| Each `engine_error`, `time_limit` and `content_filtered` run, and the owner's decision | 6.2, 7.2 | dry run: none. In the first dry run, Claude's s17 ended `throttled`; the owner approved raising both capacities to 80 and re-running. In the re-run, Claude failed s13 by fitting two batteries for "a second" one: a model result, not a stop |
+| Each `engine_error`, `time_limit` and `content_filtered` run, and the owner's decision | 6.2, 7.2 | dry run: none. In the first dry run, Claude's s17 ended `throttled`; the owner approved raising both capacities to 80 and re-running. In the re-run, Claude failed s13 by fitting two batteries for "a second" one: a model result, not a stop. Study (2026-10-06): GPT 59/60 (s14 p1 tool_limit after a wrong turn: stands). Claude's first pass had 9 throttled runs (back-to-back runs within one per-minute quota window); the owner chose to repeat each once, 70 s apart (7.3's procedure, logged in `repeats/`): 7 completed, and s14 p2 and p3 were throttled again, because that task takes Claude about 130k input tokens in about 80 s, over its 80k-a-minute quota. The owner chose to keep the pre-registered rule (they count as failures), with the dropped-run figure (C1 = 0.000) stated beside it. Verdict either way: inconclusive at 20 scenarios |
 | Any re-redaction: the date, the kind found, the PR, and the transcripts changed | 8.1 | |
 | CI's project-scope Foundry User is enough, or a resource-scope role was needed | 8.4 | |
 | The live run's mask step (runner's Python) and `azure/login` v3.1.0 | 8.4 | |

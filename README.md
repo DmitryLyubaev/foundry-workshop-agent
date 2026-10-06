@@ -8,11 +8,86 @@ that runs the same agent on GPT and on Claude in Microsoft Foundry, and measure 
 of scenarios. The design is in
 [docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md](docs/superpowers/specs/2026-10-04-foundry-workshop-agent-design.md).
 
-**Status: plan 3 of 3, under way.** The app, its storage and rules, the describer, the endpoint and its
-lock-down (plan 1), and the agent client with its 20 scenarios, run on a scripted fake model
-(plan 2), are built and tested. The Azure study (plan 3) is under way: the GPT and Claude engines
-are built and tested offline, against fake services; nothing has been run against Azure yet. Every
-record in the database is made up.
+**Status: done (6 October 2026).** The three plans are built and tested. Plan 1 is the app, its storage
+and rules, the describer, and the endpoint and its lock-down. Plan 2 is the agent client and its 20
+scenarios. Plan 3 is the keyless Azure stack, the GPT and Claude engines and the study. The study
+has run: see [Results](#results-6-october-2026). Every record in the database is made up.
+
+## Results, 6 October 2026
+
+The same agent drove the workshop app on two models, both deployed keyless in one Microsoft
+Foundry resource in eastus2:
+- **GPT:** `gpt-5.6-luna`, as a Foundry Agent Service prompt agent.
+- **Claude:** `claude-haiku-4-5`, version 2, Hosted on Azure, called through the Messages API. Its
+  tool loop runs in this client, not inside Agent Service.
+
+**The runs:**
+- **What ran:** 20 scenarios × 3 passes × 2 models, frozen beforehand (short hash
+  `2601d16c644b`), with identical instructions, tools and settings.
+- **How success was decided:** by the app's database. Every end-state check must pass, no
+  destructive press may skip the approval gate, and the run must complete.
+- **The full report and every transcript:**
+  [results/study-2026-10-06-2601d16c644b/report.md](results/study-2026-10-06-2601d16c644b/report.md).
+
+**The pre-registered comparison, as rendered:** C1 = GPT − Claude = +0.033 (95% interval +0.000 to
++0.083), over 20 scenarios. **Verdict: inconclusive at 20 scenarios.** Neither model is declared
+better. The rule needs a mean of at least ±0.10 and an interval that excludes zero.
+
+| | GPT (`gpt-5.6-luna`) | Claude (`claude-haiku-4-5`) |
+|---|---:|---:|
+| Task success | 59 of 60 (98.3%) | 57 of 60 (95.0%) |
+| Input tokens per task | 21,149 | 25,952 |
+| Output tokens per task | 351 | 748 |
+| Cost per task | $0.0047 | $0.0297 |
+| Time per task | 18.3 s | 23.7 s |
+| Tool calls per task | 6.78 | 6.33 |
+| Gate violations | 0 | 0 |
+
+These figures are descriptive. Costs are the recorded tokens at the prices read on 2026-10-04:
+- `gpt-5.6-luna`: $0.20 / $1.20 per 1M input / output tokens
+- Claude Haiku 4.5: $1 / $5 per 1M input / output tokens, billed through Azure Marketplace
+
+**Foundry's evaluators,** descriptive, with a `gpt-5.6-luna` judge, the same model the GPT engine
+runs on:
+
+| Evaluator | GPT | Claude |
+|---|---:|---:|
+| Tool call accuracy (1–5) | 3.75 | 3.88 |
+| Task adherence (preview; a 0/1 pass score) | 0.98 | 0.93 |
+| Intent resolution (preview; 1–5) | 4.70 | 4.67 |
+
+**What the failures were:**
+- **GPT, s14 pass 1:** it put a second phone screen on order instead of recording the one that had
+  arrived, then chased the extra part until the 25-call limit.
+- **Claude, s13 pass 1:** it fitted two batteries where the task asked for "a second" one.
+- **Claude, s14 passes 2 and 3:** throttled. That task takes Claude about 130,000 input tokens in
+  about 80 seconds, more than its maximum Azure quota of 80,000 a minute. The pre-registered rule
+  counts a throttled run as not completed, so these count as failures here. If they were dropped,
+  as an outage would be, C1 would be 0.000. The verdict is the same either way.
+
+**What happened during the runs:**
+- **Nine Claude runs repeated.** In Claude's first pass through the study, nine runs were
+  throttled because runs went back to back, within one per-minute quota window. Each was repeated
+  once, 70 seconds apart, by a rule fixed before any repeat (the runbook's procedure for runs the
+  environment spoiled).
+  - Seven of the repeats completed.
+  - s14's two repeats were throttled again, for the reason above.
+  - The first attempts and the log are in `repeats/`.
+- **Capacity raised.** Both deployments ran at the same capacity, 80,000 tokens a minute. It was
+  raised from 25,000 after the dry run throttled Claude.
+- **Traces.** Traces went to Application Insights with Entra, with no message content from the
+  client. Foundry's own server-side tracing of the prompt agent records the GPT conversations there
+  too. It is in the owner's resource, and every record is made up.
+
+**What this does not show:**
+- **Generality.** It covers one made-up app and 20 scenarios, not other apps, other tasks or
+  production use.
+- **Possible bias.** Claude wrote the scenarios, which is a possible bias, stated rather than
+  removed. The database, not a model, decides success.
+- **Claude and Agent Service.** Claude ran in Foundry, but not inside Foundry Agent Service.
+
+Total Azure spend for the live work (smoke, two dry runs, the study, its repeats and scoring) was
+about $3.50.
 
 ## Run the app
 

@@ -1,0 +1,2309 @@
+{
+  "status": "completed",
+  "judge": "gpt-5.6-luna",
+  "evaluators": [
+    {
+      "name": "tool_call_accuracy",
+      "evaluator": "builtin.tool_call_accuracy",
+      "preview": false
+    },
+    {
+      "name": "task_adherence",
+      "evaluator": "builtin.task_adherence",
+      "preview": true
+    },
+    {
+      "name": "intent_resolution",
+      "evaluator": "builtin.intent_resolution",
+      "preview": true
+    }
+  ],
+  "rows": [
+    {
+      "scenario_id": "s01",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s01",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s01",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s01",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s01",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s01",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s02",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s03",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s04",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s05",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s06",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s07",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s08",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s09",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s10",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s11",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s12",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 0.0,
+          "passed": false
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s13",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 0.0,
+          "passed": false
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 0.0,
+          "passed": false
+        },
+        "intent_resolution": {
+          "score": 1.0,
+          "passed": false
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 0.0,
+          "passed": false
+        },
+        "intent_resolution": {
+          "score": 2.0,
+          "passed": false
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s14",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 4.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s15",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 0.0,
+          "passed": false
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s16",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 3.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s17",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 5.0,
+          "passed": true
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 5.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s18",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 3.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s19",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "claude",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "claude",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "claude",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "gpt",
+      "pass": 1,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "gpt",
+      "pass": 2,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    },
+    {
+      "scenario_id": "s20",
+      "engine": "gpt",
+      "pass": 3,
+      "scores": {
+        "tool_call_accuracy": {
+          "score": 2.0,
+          "passed": false
+        },
+        "task_adherence": {
+          "score": 1.0,
+          "passed": true
+        },
+        "intent_resolution": {
+          "score": 4.0,
+          "passed": true
+        }
+      }
+    }
+  ],
+  "result_counts": {
+    "total": 120,
+    "passed": 90,
+    "failed": 30,
+    "errored": 0
+  }
+}

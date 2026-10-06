@@ -1,0 +1,9 @@
+- 2026-10-06: s06.claude.p2 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-2 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s08.claude.p1 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-1 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s09.claude.p3 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-3 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s11.claude.p2 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-2 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s13.claude.p3 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-3 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s14.claude.p2 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-3 in their own directory; the repeat's outcome: throttled.
+- 2026-10-06: s14.claude.p3 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-3 in their own directory; the repeat's outcome: throttled.
+- 2026-10-06: s15.claude.p1 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-1 in their own directory; the repeat's outcome: completed.
+- 2026-10-06: s17.claude.p1 ended throttled (Claude's per-minute token quota, back-to-back runs); repeated once after a 70 s pause, as passes 1-1 in their own directory; the repeat's outcome: completed.
