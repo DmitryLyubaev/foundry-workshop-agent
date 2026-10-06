@@ -1415,7 +1415,7 @@ In WSL:
 
 ## Costs
 
-**Estimates, from the spec's §8 (prices read 2026-10-04). Step 6 replaces them before the study.**
+**Measured in the dry run on 2026-10-06** (s05, s13 and s17, one pass each, capacity 80), at the prices read 2026-10-04. The estimates stay alongside the measurements.
 
 | Model | Input, per 1M tokens | Output, per 1M tokens |
 |---|---:|---:|
@@ -1424,17 +1424,17 @@ In WSL:
 
 | Item | Estimate | Measured (step 6) |
 |---|---:|---:|
-| Input tokens per task, GPT | about 25k (over about 6 turns) | `<measured>` |
-| Output tokens per task, GPT | | `<measured>` |
-| Cost per task, GPT | about $0.01 | `<measured>` |
-| Input tokens per task, Claude | about 25k | `<measured>` |
-| Output tokens per task, Claude | | `<measured>` |
-| Cost per task, Claude | about $0.03 | `<measured>` |
-| Scoring, per transcript | | `<measured>` |
-| Smoke test (step 5) | about $0.10 | `<actual>` |
-| Dry run (step 6) | about $1 | `<actual>` |
-| **The study (step 7)**: 60 × GPT + 60 × Claude + 120 × scoring | **about $3** | `<figure for step 7's ask>` |
-| Each live CI evaluation: 20 × GPT + 20 × scoring | about $1 | `<measured>` |
+| Input tokens per task, GPT | about 25k (over about 6 turns) | 27,659 |
+| Output tokens per task, GPT | | 469 |
+| Cost per task, GPT | about $0.01 | $0.0061 |
+| Input tokens per task, Claude | about 25k | 36,226 |
+| Output tokens per task, Claude | | 945 |
+| Cost per task, Claude | about $0.03 | $0.0409 |
+| Scoring, per transcript | | $0.0051 (judge: 112,638 input and 6,620 output tokens for 6 transcripts, from the resource's metrics) |
+| Smoke test (step 5) | about $0.10 | about $0.02, scoring included |
+| Dry run (step 6) | about $1 | about $0.30, scoring included. There were two dry runs: the first, at capacity 25, throttled Claude on s17 |
+| **The study (step 7)**: 60 × GPT + 60 × Claude + 120 × scoring | **about $3** | **about $3.45** (0.37 + 2.45 + 0.61) |
+| Each live CI evaluation: 20 × GPT + 20 × scoring | about $1 | about $0.22 |
 | Application Insights | within the monthly free allowance (unverified) | |
 
 ## Findings log
@@ -1444,28 +1444,28 @@ identifiers, yes or no.
 
 | Check | Step | Found |
 |---|---|---|
-| `gpt_model_version` read from the eastus2 catalogue | 4.1 | `<YYYY-MM-DD>` |
+| `gpt_model_version` read from the eastus2 catalogue | 4.1 | `2026-07-09` (GA, GlobalStandard) |
 | Claude version `2` (Hosted on Azure) listed with `GlobalStandard` in eastus2 | 4.1 | `2` |
-| `Microsoft.SaaS` / `Microsoft.MarketplaceOrdering` registered by the bootstrap | 4.1 | |
-| The capacity used for both deployments (thousands of TPM) | 4.1 | `25` |
-| The Claude deployment accepts `versionUpgradeOption = "NoAutoUpgrade"` | 4.4 | |
-| The Claude deployment keeps its tags (second plan: no changes) | 4.4 | |
-| Local auth off: Foundry resource, Application Insights, Log Analytics | 4.5 | |
-| Foundry accepted `"strict": null` and echoes it back (strict values) | 5.2 | |
-| Definition fields echoed, beyond `kind`, `model`, `instructions` and `tools`, and their values | 5.2 | |
-| The drift check's assumed defaults match (null or empty, `tool_choice` "auto", text format "text") | 5.1–5.2 | |
-| Spans in Application Insights within 5 minutes; ingestion with Entra | 5.3 | |
-| The names of the `ProjectResponsesClient` spans | 5.3 | |
-| No message content in the traces | 5.3 | |
-| The connection's `authType` `ProjectManagedIdentity` works (the service refused `AAD` on 2026-10-05) | 5.4 | |
-| The project identity needs read access on Application Insights | 5.4 | |
-| No statsbeat traffic | 5.5 | |
-| The evaluators accept the item schema and mappings (azure-ai-projects 2.7.0) | 5.6 | |
-| Result names and score scales: `tool_call_accuracy`, `task_adherence`, `intent_resolution` | 5.6 | |
-| No bare resource name or other identifier in the smoke outputs | 5.7 | |
-| The models the services say answered (`calls[].modelId`), for GPT and Claude | 5.1 | |
-| The agent version stays the same across starts | 6.1 | |
-| Each `engine_error`, `time_limit` and `content_filtered` run, and the owner's decision | 6.2, 7.2 | |
+| `Microsoft.SaaS` / `Microsoft.MarketplaceOrdering` registered by the bootstrap | 4.1 | yes, both `Registered` |
+| The capacity used for both deployments (thousands of TPM) | 4.1, 6.2 | `25` at first. Raised to `80` on 2026-10-06, after the first dry run's s17 throttled Claude (s13 used about 41k input tokens in under 30 s). 80 is the limit of Claude's Azure-hosted quota; GPT's quota is 1,000. Applied as 2 in-place changes |
+| The Claude deployment accepts `versionUpgradeOption = "NoAutoUpgrade"` | 4.4 | yes: the apply succeeded and a second plan showed no changes |
+| The Claude deployment keeps its tags (second plan: no changes) | 4.4 | yes |
+| Local auth off: Foundry resource, Application Insights, Log Analytics | 4.5 | `true`, `true`, `true` |
+| Foundry accepted `"strict": null` and echoes it back (strict values) | 5.2 | yes: `null` |
+| Definition fields echoed, beyond `kind`, `model`, `instructions` and `tools`, and their values | 5.2 | none. The definition holds exactly `instructions`, `kind` (`prompt`), `model` and `tools`; each tool holds `description`, `name`, `parameters`, `strict` and `type` |
+| The drift check's assumed defaults match (null or empty, `tool_choice` "auto", text format "text") | 5.1–5.2 | yes: version 1 passed the check on every start |
+| Spans in Application Insights within 5 minutes; ingestion with Entra | 5.3 | yes, within about 5 minutes. Local auth is off, so ingestion used Entra |
+| The names of the `ProjectResponsesClient` spans | 5.3 | client: `create_agent`, `invoke_agent`. Foundry's server-side tracing (role `responsesapi`): `invoke_agent <agent>:<version>`, `chat <model>-<version>`. Ours: `scenario.run`, `model.call`, `tool.execute`, `execute_tool <tool>` |
+| No message content in the traces | 5.3 | none from the client. Foundry's own server-side tracing records the prompt agent's conversation, for GPT runs only, in `AppGenAIContent` and the server spans. The owner accepted this on 2026-10-06: the data is made up, it stays in the owner's Application Insights, and the README says so |
+| The connection's `authType` `ProjectManagedIdentity` works (the service refused `AAD` on 2026-10-05) | 5.4 | yes: the server-side spans arrive. The connection also needs `ApplicationInsightsConnectionString` in its metadata (PR #6) |
+| The project identity needs read access on Application Insights | 5.4 | no |
+| No statsbeat traffic | 5.5 | none in the DNS cache |
+| The evaluators accept the item schema and mappings (azure-ai-projects 2.7.0) | 5.6 | yes: `completed`, 0 errored |
+| Result names and score scales: `tool_call_accuracy`, `task_adherence`, `intent_resolution` | 5.6 | as named. `tool_call_accuracy` and `intent_resolution` score 1–5; `task_adherence` returns 1.0 with `passed`, a 0/1 pass score |
+| No bare resource name or other identifier in the smoke outputs | 5.7 | none, and no user or machine name either |
+| The models the services say answered (`calls[].modelId`), for GPT and Claude | 5.1 | `gpt-5.6-luna`; `claude-haiku-4-5-20251001` |
+| The agent version stays the same across starts | 6.1 | yes: version 1 throughout |
+| Each `engine_error`, `time_limit` and `content_filtered` run, and the owner's decision | 6.2, 7.2 | dry run: none. In the first dry run, Claude's s17 ended `throttled`; the owner approved raising both capacities to 80 and re-running. In the re-run, Claude failed s13 by fitting two batteries for "a second" one: a model result, not a stop |
 | Any re-redaction: the date, the kind found, the PR, and the transcripts changed | 8.1 | |
 | CI's project-scope Foundry User is enough, or a resource-scope role was needed | 8.4 | |
 | The live run's mask step (runner's Python) and `azure/login` v3.1.0 | 8.4 | |
