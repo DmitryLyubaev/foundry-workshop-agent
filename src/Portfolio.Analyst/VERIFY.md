@@ -58,17 +58,20 @@ Microsoft.Extensions.AI.OpenAI 10.6.0 to `McpServerToolCallContent`, `McpServerT
 
 **Verify against a live answer:**
 - The output items are as above.
-- No `mcp_approval_request` arrives with `require_approval: never`. An approval request would leave the
-  answer empty, and the run would record that empty answer.
+- No `mcp_approval_request` arrives with `require_approval: never`. If one arrives (Microsoft.Extensions.AI
+  maps it to `ToolApprovalRequestContent`), the run stops with code `approval_request`.
 - `usage.input_tokens` counts the tool's output that the model read.
 
 ## 4. Failures
 
 A failed call stops the run with exit 3 and leaves the `.jsonl.partial` file. Failures include an
-HTTP error, a content-filter refusal mapped by `SdkErrors`, and a function call left to the client.
+HTTP error, a content-filter refusal mapped by `SdkErrors`, a function call left to the client
+(`tool_calls`), an MCP call whose result is an error (`tool_error`, as the direct route stops on an
+MCP `isError`) and an approval request (`approval_request`). The failed question gets no record.
 The run never scores the failure as a wrong answer. The console shows only the HTTP status and a
 type or a code.
 
 **Verify** what an MCP-side failure looks like: the data agent erroring or timing out, or the
 connection lacking access. It may arrive as an HTTP error, or as an `mcp_call` item with `error`
-set and a normal message after it. The second case would be recorded as an answer.
+set and a normal message after it. The second case stops the run with `tool_error` (checked against a
+canned body, where `error` maps to an `ErrorContent` output); confirm the live service sets `error`.

@@ -106,6 +106,32 @@ public sealed class RecordWriterTests
     }
 
     [Fact]
+    public void A_short_connection_name_does_not_damage_the_answer()
+    {
+        // "fabric" is a word an answer may use: a literal shorter than 16 characters is not replaced.
+        const string answer = "The fabric data agent says Fabric project p2 spent A$1,234.56 (fabric-wide total).";
+
+        using var text = new StringWriter(CultureInfo.InvariantCulture);
+        new RecordWriter(text, Short, [("fabric", AnswerRedaction.Id)]).Write(Record(answer));
+
+        var record = JsonNode.Parse(text.ToString())!;
+        Assert.Equal(answer, record["answer_text"]!.GetValue<string>());
+        Assert.Contains("fabric data agent", record["raw_output"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_connection_id_of_16_characters_or_more_is_replaced()
+    {
+        const string id = "conn-capstone-16";
+        Assert.Equal(RecordWriter.MinimumSecretLength, id.Length);
+
+        using var text = new StringWriter(CultureInfo.InvariantCulture);
+        new RecordWriter(text, Short, [(id, AnswerRedaction.Id)]).Write(Record($"via {id}: A$1,234.56"));
+
+        Assert.Equal("via <id>: A$1,234.56", JsonNode.Parse(text.ToString())!["answer_text"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Unknown_token_counts_are_null()
     {
         var record = Write(Record() with { Answer = new AnalystAnswer("x", new JsonObject(), ToolCalls: 0, InputTokens: null, OutputTokens: null) });

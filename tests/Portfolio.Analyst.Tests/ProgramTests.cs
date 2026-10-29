@@ -77,6 +77,44 @@ public sealed class ProgramTests
         Assert.Equal("the Foundry agent failed: HTTP 502, HttpRequestException", error.Trim());
     }
 
+    [Fact]
+    public async Task A_failure_while_cancelling_is_described_without_its_message()
+    {
+        // The run's own handler lets a failure through once the run is cancelled; Main's last guard describes it.
+        using var frozen = new Frozen();
+        using var cancel = new CancellationTokenSource();
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+
+        var code = await Program.MainAsync(frozen.RunArgs(), output, error, Frozen.Environment(), (_, _) =>
+        {
+            cancel.Cancel();
+            throw new HttpRequestException($"Connection to {Frozen.McpUrl} ({Frozen.Guid}) was reset.", null, System.Net.HttpStatusCode.ServiceUnavailable);
+        }, cancel.Token);
+
+        Assert.Equal(3, code);
+        AssertNoSecret(output.ToString(), error.ToString());
+        Assert.Equal("the Foundry agent failed: HTTP 503, HttpRequestException", error.ToString().Trim());
+    }
+
+    [Fact]
+    public async Task A_cancelled_run_says_so()
+    {
+        using var frozen = new Frozen();
+        using var cancel = new CancellationTokenSource();
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+
+        var code = await Program.MainAsync(frozen.RunArgs(), TextWriter.Null, error, Frozen.Environment(), (_, ct) =>
+        {
+            cancel.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult<IAnalystEngine>(null!);
+        }, cancel.Token);
+
+        Assert.Equal(3, code);
+        Assert.Equal("Cancelled.", error.ToString().Trim());
+    }
+
     [Theory]
     [InlineData("ANALYST_MCP_URL")]
     [InlineData("ANALYST_CONNECTION_ID")]

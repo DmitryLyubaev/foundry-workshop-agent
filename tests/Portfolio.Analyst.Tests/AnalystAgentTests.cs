@@ -148,6 +148,55 @@ public sealed class AnalystAgentTests
         Assert.Equal(56, answer.OutputTokens);
     }
 
+    public static TheoryData<string, string> Failures => new()
+    {
+        { "tool_error", FakeFoundry.ToolErrorResponse() },
+        { "approval_request", FakeFoundry.ApprovalResponse() },
+    };
+
+    [Theory]
+    [MemberData(nameof(Failures))]
+    public async Task A_tool_error_or_an_approval_request_is_a_failure_not_an_answer(string code, string response)
+    {
+        // As the direct route stops on an MCP isError: a failed call is never scored as a wrong answer.
+        var foundry = new FakeFoundry(FakeFoundry.CodeDefinition()) { Response = response };
+        var engine = AnalystAgent.CreateEngine(FakeFoundry.Setup, "1", new FakeCredential(), foundry.Transport());
+
+        var e = await Assert.ThrowsAsync<AnalystEngineException>(() => engine.AskAsync("How much?", Cancel));
+
+        Assert.Equal(code, e.Code);
+        Assert.Equal($"the agent did not answer: {code}", e.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(Failures))]
+    public async Task A_run_stops_on_a_tool_failure_with_its_code_only_and_no_record_for_that_question(string code, string response)
+    {
+        using var frozen = new Frozen();
+        var foundry = new FakeFoundry(FakeFoundry.CodeDefinition());
+        foundry.Responses.Enqueue(FakeFoundry.ResponseWith("Project p2 spent A$1,234.56."));
+        foundry.Responses.Enqueue(response);
+        using var output = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        using var error = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+
+        var exit = await Program.RunAsync(
+            frozen.RunArgs(),
+            output,
+            error,
+            Frozen.Environment(),
+            (setup, _) => Task.FromResult(AnalystAgent.CreateEngine(setup, "1", new FakeCredential(), foundry.Transport())),
+            Cancel);
+
+        Assert.Equal(3, exit);
+        Assert.Equal($"the Foundry agent failed: code {code}", error.ToString().Trim());
+        Assert.DoesNotContain("example.invalid", error.ToString() + output.ToString(), StringComparison.Ordinal);
+        // The first question's record stays in the .partial file; the failed question has none, and the run never looks complete.
+        var file = Assert.Single(frozen.OutFiles());
+        Assert.EndsWith(".jsonl.partial", file, StringComparison.Ordinal);
+        var line = Assert.Single(File.ReadAllLines(Path.Combine(frozen.Out, file)));
+        Assert.Equal("q01", JsonNode.Parse(line)!["question_id"]!.GetValue<string>());
+    }
+
     [Fact]
     public async Task Each_mcp_call_counts_and_raw_output_keeps_the_calls()
     {

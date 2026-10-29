@@ -40,6 +40,9 @@ internal sealed class FakeFoundry : HttpMessageHandler
     /// <summary>The Responses API's answer to every <c>POST …/responses</c>.</summary>
     public string Response { get; set; } = ResponseWith("No answer.");
 
+    /// <summary>Answers taken in turn before <see cref="Response"/>, one per <c>POST …/responses</c>.</summary>
+    public Queue<string> Responses { get; } = new();
+
     public List<JsonObject> Created { get; } = [];
 
     public IReadOnlyList<Sent> Requests
@@ -78,6 +81,29 @@ internal sealed class FakeFoundry : HttpMessageHandler
         }),
     };
 
+    /// <summary>A Responses API result whose one MCP call failed, as the service reports it (<c>error</c> set), with an answer after it.</summary>
+    public static string ToolErrorResponse() => Result(new JsonArray(
+        new JsonObject
+        {
+            ["type"] = "mcp_call",
+            ["id"] = "mcp_1",
+            ["server_label"] = "portfolio-data",
+            ["name"] = "ask",
+            ["arguments"] = "{\"question\":\"How much?\"}",
+            ["error"] = new JsonObject { ["type"] = "tool_execution_error", ["message"] = "The data agent at https://mcp.example.invalid/x failed." },
+        },
+        Message("The tool failed, but p2 spent about A$1,200.")));
+
+    /// <summary>A Responses API result that asks for an approval before calling the MCP tool.</summary>
+    public static string ApprovalResponse() => Result(new JsonArray(new JsonObject
+    {
+        ["type"] = "mcp_approval_request",
+        ["id"] = "mcpr_1",
+        ["server_label"] = "portfolio-data",
+        ["name"] = "ask",
+        ["arguments"] = "{\"question\":\"How much?\"}",
+    }));
+
     /// <summary>A Responses API result: the data agent's tool listed and called once, then the answer.</summary>
     public static string ResponseWith(string answer, int calls = 1)
     {
@@ -101,15 +127,21 @@ internal sealed class FakeFoundry : HttpMessageHandler
             });
         }
 
-        output.Add(new JsonObject
-        {
-            ["type"] = "message",
-            ["id"] = "msg_1",
-            ["role"] = "assistant",
-            ["status"] = "completed",
-            ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = answer, ["annotations"] = new JsonArray() }),
-        });
-        return new JsonObject
+        output.Add(Message(answer));
+        return Result(output);
+    }
+
+    private static JsonObject Message(string answer) => new()
+    {
+        ["type"] = "message",
+        ["id"] = "msg_1",
+        ["role"] = "assistant",
+        ["status"] = "completed",
+        ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = answer, ["annotations"] = new JsonArray() }),
+    };
+
+    private static string Result(JsonArray output) =>
+        new JsonObject
         {
             ["id"] = "resp_1",
             ["object"] = "response",
@@ -129,7 +161,6 @@ internal sealed class FakeFoundry : HttpMessageHandler
             ["tool_choice"] = "auto",
             ["tools"] = new JsonArray(),
         }.ToJsonString();
-    }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -148,7 +179,7 @@ internal sealed class FakeFoundry : HttpMessageHandler
         const string agent = "/agents/portfolio-analyst";
         if (request.Method == HttpMethod.Post && path.EndsWith("/responses", StringComparison.Ordinal))
         {
-            return Json(200, Response);
+            return Json(200, Responses.Count > 0 ? Responses.Dequeue() : Response);
         }
 
         if (request.Method == HttpMethod.Get && path.EndsWith(agent, StringComparison.Ordinal))

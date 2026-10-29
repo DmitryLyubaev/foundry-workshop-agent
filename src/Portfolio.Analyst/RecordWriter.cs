@@ -21,6 +21,9 @@ public sealed partial class RecordWriter
 {
     public const string Route = "foundry";
 
+    /// <summary>The shortest secret replaced as a literal; a shorter one could be an ordinary word.</summary>
+    public const int MinimumSecretLength = 16;
+
     /// <summary>Compact, with non-ASCII text and the placeholders' angle brackets written as they are, as Python's <c>json.dumps(ensure_ascii=False)</c> does.</summary>
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -34,7 +37,11 @@ public sealed partial class RecordWriter
 
     /// <param name="writer">Where the lines go.</param>
     /// <param name="freeze">The freeze's short hash: 12 lowercase hex characters.</param>
-    /// <param name="secrets">Values replaced wherever they appear, longest first, before the patterns run.</param>
+    /// <param name="secrets">
+    /// Values replaced wherever they appear, longest first, before the patterns run. One shorter than
+    /// <see cref="MinimumSecretLength"/> is not replaced: a short connection name such as <c>fabric</c>
+    /// is a word an answer may use, and replacing it would damage the answer.
+    /// </param>
     public RecordWriter(TextWriter writer, string freeze, IEnumerable<(string Literal, string Placeholder)> secrets)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -46,7 +53,7 @@ public sealed partial class RecordWriter
 
         this.writer = writer;
         this.freeze = freeze;
-        this.secrets = [.. secrets.Where(s => !string.IsNullOrEmpty(s.Literal)).OrderByDescending(s => s.Literal.Length)];
+        this.secrets = [.. secrets.Where(s => s.Literal is { Length: >= MinimumSecretLength }).OrderByDescending(s => s.Literal.Length)];
     }
 
     /// <summary>Writes <paramref name="record"/> as one line and flushes it.</summary>

@@ -58,13 +58,36 @@ public static class Program
             }
         };
 
+        return await MainAsync(args, Console.Out, Console.Error, Environment.GetEnvironmentVariable, LiveEngineAsync, cancel.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="RunAsync(string[], TextWriter, TextWriter, Func{string, string?}, Func{AnalystSetup, CancellationToken, Task{IAnalystEngine}}, CancellationToken)"/>
+    /// with the last guard: whatever escapes it (a failure while cancelling, which the run's own
+    /// handler lets through) is described by <see cref="Describe"/> only, never by its message or
+    /// stack trace, which may name an endpoint, a URL or an ID.
+    /// </summary>
+    internal static async Task<int> MainAsync(
+        string[] args,
+        TextWriter output,
+        TextWriter error,
+        Func<string, string?> environment,
+        Func<AnalystSetup, CancellationToken, Task<IAnalystEngine>> engines,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(error);
         try
         {
-            return await RunAsync(args, Console.Out, Console.Error, Environment.GetEnvironmentVariable, LiveEngineAsync, cancel.Token).ConfigureAwait(false);
+            return await RunAsync(args, output, error, environment, engines, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await Console.Error.WriteLineAsync("Cancelled.").ConfigureAwait(false);
+            await error.WriteLineAsync("Cancelled.").ConfigureAwait(false);
+            return AgentFailed;
+        }
+        catch (Exception e)
+        {
+            await error.WriteLineAsync($"the Foundry agent failed: {Describe(e)}").ConfigureAwait(false);
             return AgentFailed;
         }
     }

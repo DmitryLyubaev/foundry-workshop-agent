@@ -40,7 +40,8 @@ public sealed class AnalystEngineException(string code) : Exception($"the agent 
 /// live run (<see cref="AnalystAgent.CreateEngine"/>), a scripted model in tests. Each question is
 /// sent alone, as a new message list with no conversation or previous response, so nothing carries
 /// over from one question to the next. The tool runs in the service: the answer comes back with
-/// its MCP calls already made, and those are counted.
+/// its MCP calls already made, and those are counted. A tool error or an approval request is an
+/// <see cref="AnalystEngineException"/> (<c>tool_error</c>, <c>approval_request</c>), never an answer.
 /// </summary>
 public sealed class ChatClientAnalystEngine(IChatClient client, Func<ChatOptions?>? options = null) : IAnalystEngine
 {
@@ -53,6 +54,20 @@ public sealed class ChatClientAnalystEngine(IChatClient client, Func<ChatOptions
         if (response.FinishReason == ChatFinishReason.ToolCalls)
         {
             throw new AnalystEngineException("tool_calls");
+        }
+
+        // The tool's own failures are failed calls, not answers, as on the direct route (an MCP isError
+        // stops it): an approval request the agent's "never" should rule out, and a tool result that
+        // is an error. Neither is scored; the run stops, and nothing is recorded for this question.
+        var all = response.Messages.SelectMany(m => m.Contents).ToList();
+        if (all.Any(c => c is ToolApprovalRequestContent))
+        {
+            throw new AnalystEngineException("approval_request");
+        }
+
+        if (all.OfType<McpServerToolResultContent>().Any(r => r.Outputs?.Any(o => o is ErrorContent) == true))
+        {
+            throw new AnalystEngineException("tool_error");
         }
 
         var contents = response.Messages.Where(m => m.Role == ChatRole.Assistant).SelectMany(m => m.Contents).ToList();
