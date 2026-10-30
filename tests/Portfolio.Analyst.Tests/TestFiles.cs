@@ -10,6 +10,10 @@ internal static class TestFiles
     public static JsonObject Vector() =>
         JsonNode.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "vectors", "freeze-vector.json")))!.AsObject();
 
+    /// <summary><c>tests/vectors/redaction-vector.json</c>: the Fabric repo's shared redaction vector, byte for byte.</summary>
+    public static JsonArray RedactionVector() =>
+        JsonNode.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "vectors", "redaction-vector.json")))!.AsArray();
+
     /// <summary>The Fabric repo's <c>record.schema.json</c>, byte for byte.</summary>
     public static JsonObject RecordSchema() =>
         JsonNode.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "record.schema.json")))!.AsObject();

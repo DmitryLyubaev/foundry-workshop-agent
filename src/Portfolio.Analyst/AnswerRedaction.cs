@@ -18,7 +18,7 @@ namespace Portfolio.Analyst;
 /// quote, angle bracket, backtick or backslash; punctuation that ends a sentence or closes a bracket
 /// is given back.</item>
 /// <item>Credentials become <c>&lt;token&gt;</c>: <c>Bearer</c> and a token of 20 or more characters of
-/// <c>[\w.~+/-]</c> (the word stays); a JWT; SAS parameter values, only in an <c>&amp;</c>-joined run
+/// <c>[\w.~+/-]</c>, with Python's <c>\w</c> (the word stays); a JWT; SAS parameter values, only in an <c>&amp;</c>-joined run
 /// that holds <c>sig=</c> (the names stay).</item>
 /// <item>Email addresses.</item>
 /// <item>Hosts without a scheme: every label holds a letter and a common top-level domain ends it;
@@ -92,37 +92,47 @@ public static partial class AnswerRedaction
     private static string SignedSas(Match match) =>
         Signed().IsMatch(match.Value) ? Sas().Replace(match.Value, "${1}${2}=" + Token) : match.Value;
 
-    private const string Rest = @"[^\s""'<>\\`]";
+    // Python's \w, \b and \s, not .NET's: the shared vector (tests/vectors/redaction-vector.json)
+    // pins them. Python's \w is a letter, any number (Nd, Nl, No: "²" too) or "_"; .NET's also takes
+    // combining marks (Mn) and every connector (Pc), and its \b counts ZWJ and ZWNJ as word
+    // characters. Python's \s also takes the separators \x1C-\x1F. So: the classes below, and \b as
+    // a lookaround (every \b here stands next to a word character, so one side is enough).
+    private const string WordChars = @"\p{L}\p{N}_";
+    private const string NotWordBefore = "(?<![" + WordChars + "])";
+    private const string NotWordAfter = "(?![" + WordChars + "])";
+    private const string SpaceChars = @"\s\x1C-\x1F";
+    private const string Rest = "[^" + SpaceChars + @"""'<>\\`]";
     private const string SafeTlds = "com|net|org|io|cloud|invalid|local|internal|au|uk|us|eu";
     private const string RiskyTlds = "ms|ai|azure|microsoft|windows|app|dev";
     private const string Label = @"(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9-]+\.";
 
-    [GeneratedRegex(@"\b(?:https?|wss?|ftp|abfss?)://" + Rest + "+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(NotWordBefore + "(?:https?|wss?|ftp|abfss?)://" + Rest + "+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex UrlPattern();
 
     [GeneratedRegex(@"[.,;:!?)\]}]+$", RegexOptions.CultureInvariant)]
     private static partial Regex UrlTail();
 
-    [GeneratedRegex(@"\b(bearer)\s+[\w.~+/-]{20,}=*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(NotWordBefore + "(bearer)[" + SpaceChars + "]+[" + WordChars + ".~+/-]{20,}=*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Bearer();
 
-    [GeneratedRegex(@"\beyJ[\w-]+\.[\w-]+\.[\w-]*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(NotWordBefore + "eyJ[" + WordChars + "-]+\\.[" + WordChars + "-]+\\.[" + WordChars + "-]*", RegexOptions.CultureInvariant)]
     private static partial Regex Jwt();
 
-    [GeneratedRegex(@"[\w.-]+=[^&\s""]*(?:&[\w.-]+=[^&\s""]*)*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("[" + WordChars + ".-]+=[^&" + SpaceChars + "\"]*(?:&[" + WordChars + ".-]+=[^&" + SpaceChars + "\"]*)*", RegexOptions.CultureInvariant)]
     private static partial Regex Params();
 
     [GeneratedRegex(@"(?:^|&)sig=", RegexOptions.CultureInvariant)]
     private static partial Regex Signed();
 
-    [GeneratedRegex(@"(^|&)(sig|skoid|sktid|se|sv|st|sp|spr|srt|ss)=[^&\s""]*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(^|&)(sig|skoid|sktid|se|sv|st|sp|spr|srt|ss)=[^&" + SpaceChars + "\"]*", RegexOptions.CultureInvariant)]
     private static partial Regex Sas();
 
-    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}" + NotWordAfter, RegexOptions.CultureInvariant)]
     private static partial Regex EmailPattern();
 
     [GeneratedRegex(
-        @"(?<![\w@.-])(?:(?:" + Label + ")+(?:" + SafeTlds + ")|" + Label + "(?:" + Label + ")+(?:" + RiskyTlds + @"))\b(?![.-]\w)(?:[/:?#]" + Rest + "*)?",
+        "(?<![" + WordChars + "@.-])(?:(?:" + Label + ")+(?:" + SafeTlds + ")|" + Label + "(?:" + Label + ")+(?:" + RiskyTlds + "))"
+            + NotWordAfter + "(?![.-][" + WordChars + "])(?:[/:?#]" + Rest + "*)?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Host();
 

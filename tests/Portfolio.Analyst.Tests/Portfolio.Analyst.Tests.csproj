@@ -19,6 +19,7 @@
   <ItemGroup>
     <!-- Copies of the Fabric repo's contract, byte for byte: never edited here. -->
     <None Include="..\vectors\freeze-vector.json" Link="vectors\freeze-vector.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\vectors\redaction-vector.json" Link="vectors\redaction-vector.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="record.schema.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
