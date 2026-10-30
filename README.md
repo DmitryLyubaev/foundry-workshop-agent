@@ -377,6 +377,39 @@ contained by default settings:
    that user could receive requests, and their tokens. None exists by default
    (`netsh http show urlacl` lists them), and creating one needs administrator rights.
 
+## The portfolio analyst
+
+`src/Portfolio.Analyst` is the Foundry route of the phase 4 capstone. The capstone itself lives in the
+Fabric repo, and its freeze and scoring run there. The analyst is a prompt agent, `portfolio-analyst`,
+in this repo's Foundry project. It has the instructions in
+[`instructions.md`](src/Portfolio.Analyst/instructions.md) and one tool: Foundry's MCP tool,
+`portfolio-data`, which reaches the Fabric data agent through a project connection. It asks the frozen
+questions and writes the records the Fabric repo scores.
+
+```
+portfolio-analyst run --freeze <path> --questions <path> --passes <1-3> --out <dir> --model <name>
+portfolio-analyst verify --freeze <path> --questions <path> --model <name>
+```
+
+- **The freeze comes first.** Both commands recompute the questions', the instructions' and the model's
+  hashes, exactly as the Fabric repo's `freeze.py` does. They refuse with exit 1, naming the first
+  component that differs.
+- **The two repos agree.** `tests/vectors/freeze-vector.json` is committed in both repos and pins their
+  hashes together.
+- **Settings.** `run` reads `FWA_PROJECT_ENDPOINT`, `ANALYST_MCP_URL` and `ANALYST_CONNECTION_ID` from
+  the environment. It signs in keyless, through `az login`, and never prints the values.
+- **One question, one conversation.** Each question goes to the agent alone, in a fresh conversation,
+  once per pass.
+- **Records.** Each record follows the shared `record.schema.json`, with `route` set to `foundry`.
+  Answers are redacted before they are written: URLs, GUIDs, emails, tokens and SAS values.
+  - Records go to `<out>/foundry-<short>-<UTC start>.jsonl.partial`.
+  - The file is renamed to `.jsonl` once every pass is done.
+- **Exit codes.**
+  - `2`: a usage or input error.
+  - `3`: Foundry or the agent failed. The message gives only a status and a type or code.
+
+[`VERIFY.md`](src/Portfolio.Analyst/VERIFY.md) lists what the live MCP spike must confirm.
+
 ## Build and test
 
 ```

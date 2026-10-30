@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Portfolio.Analyst\Portfolio.Analyst.csproj" />
+    <!-- ScriptedChatClient and Script: the scripted model the runs are tested on. -->
+    <ProjectReference Include="..\..\src\Workshop.Agent\Workshop.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copies of the Fabric repo's contract, byte for byte: never edited here. -->
+    <None Include="..\vectors\freeze-vector.json" Link="vectors\freeze-vector.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\vectors\redaction-vector.json" Link="vectors\redaction-vector.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="record.schema.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

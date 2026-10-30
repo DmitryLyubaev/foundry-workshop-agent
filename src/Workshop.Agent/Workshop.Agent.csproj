@@ -28,6 +28,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Workshop.Agent.Tests" />
+    <!-- The capstone's portfolio analyst reuses the project client's keyless setup and the SDK error mapping. -->
+    <InternalsVisibleTo Include="portfolio-analyst" />
   </ItemGroup>
 
 </Project>

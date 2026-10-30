@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The capstone's Foundry route: the portfolio-analyst prompt agent, reaching the Fabric data
+       agent through Foundry's MCP tool (README "The portfolio analyst"). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>portfolio-analyst</AssemblyName>
+    <RootNamespace>Portfolio.Analyst</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.Projects" />
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The project client's keyless setup (GptEngineFactory.ProjectClient), the SDK error mapping,
+         the throttling retry and the placeholders of Redaction. -->
+    <ProjectReference Include="..\Workshop.Agent\Workshop.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The agent's instructions, frozen by the capstone (component analyst_instructions); read as bytes beside the executable. -->
+    <None Update="instructions.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Portfolio.Analyst.Tests" />
+  </ItemGroup>
+
+</Project>
