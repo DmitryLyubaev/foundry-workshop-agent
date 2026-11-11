@@ -1,11 +1,13 @@
 using System.Text;
+using System.Text.Json.Nodes;
 
 namespace Portfolio.Analyst.Tests;
 
 /// <summary>
 /// <c>instructions.md</c> tells the agent to refuse as the Fabric repo's scorer recognises a refusal:
-/// its phrases start with "not in the data", and a refusal that states a figure or uses a change or
-/// comparison word is scored wrong.
+/// its phrases start with "not in the data", and a refusal that states a figure or uses one of the
+/// scorer's change words (<c>CHANGE_WORDS</c>, copied as <c>tests/vectors/change-words.json</c>) is
+/// scored wrong.
 /// </summary>
 public sealed class InstructionsTests
 {
@@ -27,22 +29,35 @@ public sealed class InstructionsTests
         Assert.Contains("Give no figure at all", RefusalLine, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("better")]
-    [InlineData("worse")]
-    [InlineData("rose")]
-    [InlineData("fell")]
-    [InlineData("higher")]
-    [InlineData("lower")]
-    [InlineData("increased")]
-    [InlineData("decreased")]
-    [InlineData("up")]
-    [InlineData("down")]
-    [InlineData("changed")]
-    public void A_refusal_uses_no_change_or_comparison_word(string word)
+    private const string WordListLead = "Use none of these change or comparison words in it either: ";
+
+    /// <summary>The Fabric scorer's change words, in its order, from the copied <c>change-words.json</c>.</summary>
+    private static string[] ScorerChangeWords =>
+        JsonNode.Parse(TestFiles.ChangeWords())!.AsArray().Select(w => w!.GetValue<string>()).ToArray();
+
+    [Fact]
+    public void A_refusal_lists_exactly_the_scorers_change_words()
     {
-        Assert.Contains("no change or comparison word", RefusalLine, StringComparison.Ordinal);
-        Assert.Matches($@"\b{word}\b", RefusalLine);
+        var line = RefusalLine;
+        var start = line.IndexOf(WordListLead, StringComparison.Ordinal);
+        Assert.True(start >= 0, "The refusal line has no change-word list.");
+        Assert.EndsWith(".", line, StringComparison.Ordinal);
+        var listed = line[(start + WordListLead.Length)..^1].Split(", ");
+        Assert.Equal(ScorerChangeWords, listed);
+    }
+
+    [Fact]
+    public void The_change_words_copy_is_the_scorers_list_as_the_fabric_repo_writes_it()
+    {
+        // The Fabric repo writes json.dumps(list(CHANGE_WORDS), indent=2) and a newline: LF, no BOM.
+        var bytes = TestFiles.ChangeWords();
+        var words = ScorerChangeWords;
+        Assert.NotEmpty(words);
+        Assert.All(words, w => Assert.Matches("^[a-z]+$", w));
+        Assert.Equal(words.Length, words.Distinct(StringComparer.Ordinal).Count());
+        var expected = "[\n" + string.Join(",\n", words.Select(w => $"  \"{w}\"")) + "\n]\n";
+        Assert.Equal(expected, Encoding.UTF8.GetString(bytes));
+        Assert.False(bytes is [0xEF, 0xBB, 0xBF, ..]);
     }
 
     [Fact]
