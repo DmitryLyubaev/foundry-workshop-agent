@@ -14,6 +14,10 @@ internal static class TestFiles
     public static JsonArray RedactionVector() =>
         JsonNode.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "vectors", "redaction-vector.json")))!.AsArray();
 
+    /// <summary><c>tests/vectors/change-words.json</c>: the Fabric repo's <c>capstone/change-words.json</c> (its scorer's
+    /// <c>CHANGE_WORDS</c>), byte for byte: raw bytes.</summary>
+    public static byte[] ChangeWords() => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "vectors", "change-words.json"));
+
     /// <summary>The Fabric repo's <c>record.schema.json</c>, byte for byte.</summary>
     public static JsonObject RecordSchema() =>
         JsonNode.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "record.schema.json")))!.AsObject();
