@@ -408,7 +408,18 @@ portfolio-analyst verify --freeze <path> --questions <path> --model <name>
   - `2`: a usage or input error.
   - `3`: Foundry or the agent failed. The message gives only a status and a type or code.
 
-[`VERIFY.md`](src/Portfolio.Analyst/VERIFY.md) lists what the live MCP spike must confirm.
+[`VERIFY.md`](src/Portfolio.Analyst/VERIFY.md) lists what the code assumed about the live service, each
+point with what the live run found.
+
+### The capstone's live run, 16–17 November 2026
+
+The analyst ran the capstone's 15 frozen questions, 3 passes, at `51bf705` with `gpt-5.5`, against the
+Fabric data agent through a user-delegated project connection. It scored 14, 14 and 12 of 15. The same
+data agent asked directly scored 14, 14 and 14. Through the analyst, the Fabric side used 13,304
+CU-seconds; the analyst's own model used 57,599 input and 5,481 output tokens. Fifteen questions are
+too few to rank the routes: the figures describe this run only. Every answer, verdict and figure is
+in the Fabric repo's [capstone report](https://github.com/DmitryLyubaev/llm-cost-quality-fabric/blob/f1238040d39f7edbc4df1b4f95db8c9cb488504e/capstone/report.md).
+The Foundry resources were destroyed after the run.
 
 ## Build and test
 
